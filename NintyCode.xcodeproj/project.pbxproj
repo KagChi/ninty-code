@@ -1,0 +1,457 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0CE060D310DA747F78D77993 /* MessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101DDE0D1213D26582255FB4 /* MessageView.swift */; };
+		0D274A81BEF0B12A62A8E69B /* NintyCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1DBB7BB224A670DDC38EE53C /* NintyCore */; };
+		1B075CA3A532DF52E13AEA8D /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBFB1ECC604F20EF488C358 /* SidebarView.swift */; };
+		333C73B5277824DF32E05307 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9349D4E39A86CD1A62F62345 /* AppState.swift */; };
+		33D8CE0C5DB86AC5365AEDD4 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 945032613CB81D306B36EC12 /* ChatStore.swift */; };
+		3EE77E1CA94F2B6D8EE8B4FF /* PermissionPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02A447C9850494386789819 /* PermissionPromptView.swift */; };
+		4D9C04B841F29D387ACFF283 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64A903AFB9CC997C362CEC5 /* ChatView.swift */; };
+		EBBAC666568A5264CF41FC78 /* NintyCodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68400302511C84A16456E751 /* NintyCodeApp.swift */; };
+		F04B502AD8F915D11ED4E01D /* ToolCallCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0327AF5B13B3180B60F4D7A1 /* ToolCallCard.swift */; };
+		F16341C833A5F519D549BC5A /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02937BA2AEA821B8BCDE7ADA /* ComposerView.swift */; };
+		FDE2F6E32C1A7C622878BED2 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A049FCBA66A431BEAD0A85 /* SettingsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		02937BA2AEA821B8BCDE7ADA /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
+		0327AF5B13B3180B60F4D7A1 /* ToolCallCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallCard.swift; sourceTree = "<group>"; };
+		101DDE0D1213D26582255FB4 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
+		50A049FCBA66A431BEAD0A85 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		68400302511C84A16456E751 /* NintyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NintyCodeApp.swift; sourceTree = "<group>"; };
+		9349D4E39A86CD1A62F62345 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		945032613CB81D306B36EC12 /* ChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStore.swift; sourceTree = "<group>"; };
+		A64A903AFB9CC997C362CEC5 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		C67EC59E1D02A5CFA6EAE096 /* NintyCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NintyCore; path = Packages/NintyCore; sourceTree = SOURCE_ROOT; };
+		DBBFB1ECC604F20EF488C358 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		EBFEDE6172339CB0DC9C8EE4 /* NintyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NintyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F02A447C9850494386789819 /* PermissionPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionPromptView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		FE0BF22BD7EC7636A01DEC8B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0D274A81BEF0B12A62A8E69B /* NintyCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		10C2E99C4FBE5EDB6309C28D /* Permissions */ = {
+			isa = PBXGroup;
+			children = (
+				F02A447C9850494386789819 /* PermissionPromptView.swift */,
+			);
+			path = Permissions;
+			sourceTree = "<group>";
+		};
+		1F8CF412154470687D1116D2 /* NintyCode */ = {
+			isa = PBXGroup;
+			children = (
+				B2F7014BECC8F4AACEE2F2FF /* App */,
+				B2FFD6F323A0893AA2F0033E /* Resources */,
+				83A7D64C290F9176E35E0572 /* State */,
+				49E0792FD423C0A69E36054F /* Views */,
+			);
+			path = NintyCode;
+			sourceTree = "<group>";
+		};
+		3BA8AE09509A0F32A9F6E352 = {
+			isa = PBXGroup;
+			children = (
+				1F8CF412154470687D1116D2 /* NintyCode */,
+				4AFD2B221DAD2C62D348FE3C /* Packages */,
+				B2F844195A57BA40B245964E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		49E0792FD423C0A69E36054F /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A9114AAE3572D7F8893CAE24 /* Chat */,
+				D6AEB83E099B9F3913F9EB44 /* Composer */,
+				10C2E99C4FBE5EDB6309C28D /* Permissions */,
+				7D23520715C363677D2E8F11 /* Settings */,
+				7DFE0C59E1CC061616B8A398 /* Sidebar */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4AFD2B221DAD2C62D348FE3C /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				C67EC59E1D02A5CFA6EAE096 /* NintyCore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		7D23520715C363677D2E8F11 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				50A049FCBA66A431BEAD0A85 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		7DFE0C59E1CC061616B8A398 /* Sidebar */ = {
+			isa = PBXGroup;
+			children = (
+				DBBFB1ECC604F20EF488C358 /* SidebarView.swift */,
+			);
+			path = Sidebar;
+			sourceTree = "<group>";
+		};
+		83A7D64C290F9176E35E0572 /* State */ = {
+			isa = PBXGroup;
+			children = (
+				9349D4E39A86CD1A62F62345 /* AppState.swift */,
+				945032613CB81D306B36EC12 /* ChatStore.swift */,
+			);
+			path = State;
+			sourceTree = "<group>";
+		};
+		A9114AAE3572D7F8893CAE24 /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				A64A903AFB9CC997C362CEC5 /* ChatView.swift */,
+				101DDE0D1213D26582255FB4 /* MessageView.swift */,
+				0327AF5B13B3180B60F4D7A1 /* ToolCallCard.swift */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		B2F7014BECC8F4AACEE2F2FF /* App */ = {
+			isa = PBXGroup;
+			children = (
+				68400302511C84A16456E751 /* NintyCodeApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B2F844195A57BA40B245964E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				EBFEDE6172339CB0DC9C8EE4 /* NintyCode.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B2FFD6F323A0893AA2F0033E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		D6AEB83E099B9F3913F9EB44 /* Composer */ = {
+			isa = PBXGroup;
+			children = (
+				02937BA2AEA821B8BCDE7ADA /* ComposerView.swift */,
+			);
+			path = Composer;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		EA938E5725033C051AC4132E /* NintyCode */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5C609F4908B6655FDE96F12B /* Build configuration list for PBXNativeTarget "NintyCode" */;
+			buildPhases = (
+				9B1F41D8F54D3C8525974614 /* Sources */,
+				FE0BF22BD7EC7636A01DEC8B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NintyCode;
+			packageProductDependencies = (
+				1DBB7BB224A670DDC38EE53C /* NintyCore */,
+			);
+			productName = NintyCode;
+			productReference = EBFEDE6172339CB0DC9C8EE4 /* NintyCode.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		889574D443309FF88D041AA2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					EA938E5725033C051AC4132E = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 7A86E062C01BAD95E6CAB45C /* Build configuration list for PBXProject "NintyCode" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 3BA8AE09509A0F32A9F6E352;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				81F0C55BD4D6FDFC4EEEDA4B /* XCLocalSwiftPackageReference "Packages/NintyCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B2F844195A57BA40B245964E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				EA938E5725033C051AC4132E /* NintyCode */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9B1F41D8F54D3C8525974614 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				333C73B5277824DF32E05307 /* AppState.swift in Sources */,
+				33D8CE0C5DB86AC5365AEDD4 /* ChatStore.swift in Sources */,
+				4D9C04B841F29D387ACFF283 /* ChatView.swift in Sources */,
+				F16341C833A5F519D549BC5A /* ComposerView.swift in Sources */,
+				0CE060D310DA747F78D77993 /* MessageView.swift in Sources */,
+				EBBAC666568A5264CF41FC78 /* NintyCodeApp.swift in Sources */,
+				3EE77E1CA94F2B6D8EE8B4FF /* PermissionPromptView.swift in Sources */,
+				FDE2F6E32C1A7C622878BED2 /* SettingsView.swift in Sources */,
+				1B075CA3A532DF52E13AEA8D /* SidebarView.swift in Sources */,
+				F04B502AD8F915D11ED4E01D /* ToolCallCard.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		60101CD016AEBE5C39861AA2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ninty-code";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT © 2026 kagchi";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.ninty.code;
+				PRODUCT_NAME = NintyCode;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		BCF78D7B1F4EAAB5ED2DB5F8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				EXCLUDED_ARCHS = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		CB4BD2A26D4B2BF2540BF50D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ninty-code";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT © 2026 kagchi";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.ninty.code;
+				PRODUCT_NAME = NintyCode;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		FCC0B09992BCBF586AC718AC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				EXCLUDED_ARCHS = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5C609F4908B6655FDE96F12B /* Build configuration list for PBXNativeTarget "NintyCode" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CB4BD2A26D4B2BF2540BF50D /* Debug */,
+				60101CD016AEBE5C39861AA2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7A86E062C01BAD95E6CAB45C /* Build configuration list for PBXProject "NintyCode" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FCC0B09992BCBF586AC718AC /* Debug */,
+				BCF78D7B1F4EAAB5ED2DB5F8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		81F0C55BD4D6FDFC4EEEDA4B /* XCLocalSwiftPackageReference "Packages/NintyCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/NintyCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1DBB7BB224A670DDC38EE53C /* NintyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NintyCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 889574D443309FF88D041AA2 /* Project object */;
+}

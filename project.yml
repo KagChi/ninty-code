@@ -1,0 +1,43 @@
+name: NintyCode
+options:
+  bundleIdPrefix: ai.ninty
+  deploymentTarget:
+    macOS: "26.0"
+  generateEmptyDirectories: true
+
+packages:
+  NintyCore:
+    path: Packages/NintyCore
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ARCHS: arm64
+    EXCLUDED_ARCHS: x86_64
+    ONLY_ACTIVE_ARCH: YES
+
+targets:
+  NintyCode:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: NintyCode
+    dependencies:
+      - package: NintyCore
+        product: NintyCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.ninty.code
+        PRODUCT_NAME: NintyCode
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ninty-code
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: "MIT © 2026 kagchi"
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Automatic
+        COMBINE_HIDPI_IMAGES: YES

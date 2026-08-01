@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.dSYM*
+
+# SPM
+.swiftpm/
+.build/
+
+# Secrets
+.env
+auth.json
+*.p12
+*.mobileprovision
+
+# Release artifacts
+*.dmg
+*.app
+*.xcarchive
+checksums.txt

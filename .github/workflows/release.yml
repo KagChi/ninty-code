@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Mark as prerelease'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  SCHEME: NintyCode
+  APP_NAME: NintyCode
+
+jobs:
+  release:
+    name: Build + release DMG
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Test NintyCore
+        run: swift test --package-path Packages/NintyCore
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import signing certificate
+        if: vars.APPLE_SIGNING_ENABLED == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p ci-actions ci.keychain
+          security default-keychain -s ci.keychain
+          security unlock-keychain -p ci-actions ci.keychain
+          security import /tmp/cert.p12 -k ci.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci-actions ci.keychain
+          rm /tmp/cert.p12
+
+      - name: Archive
+        run: |
+          SIGN_FLAGS="CODE_SIGNING_ALLOWED=NO"
+          if [[ "${{ vars.APPLE_SIGNING_ENABLED }}" == "true" ]]; then SIGN_FLAGS=""; fi
+          xcodebuild -scheme "$SCHEME" -destination 'platform=macOS,arch=arm64' \
+            -configuration Release -archivePath "build/$APP_NAME.xcarchive" \
+            archive $SIGN_FLAGS MARKETING_VERSION="${{ steps.version.outputs.version }}"
+
+      - name: Export
+        run: |
+          if [[ "${{ vars.APPLE_SIGNING_ENABLED }}" == "true" ]]; then
+            xcodebuild -exportArchive -archivePath "build/$APP_NAME.xcarchive" \
+              -exportPath build/export -exportOptionsPlist ExportOptions.plist
+          else
+            mkdir -p build/export
+            cp -R "build/$APP_NAME.xcarchive/Products/Applications/$APP_NAME.app" build/export/
+          fi
+
+      - name: Notarize
+        if: vars.APPLE_SIGNING_ENABLED == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent "build/export/$APP_NAME.app" "build/$APP_NAME.zip"
+          xcrun notarytool submit "build/$APP_NAME.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "build/export/$APP_NAME.app"
+
+      - name: Create DMG + checksums
+        run: |
+          brew install create-dmg
+          DMG="$APP_NAME-${{ steps.version.outputs.version }}.dmg"
+          create-dmg --volname "$APP_NAME" --window-size 600 400 \
+            --app-drop-link 450 185 "$DMG" "build/export/$APP_NAME.app" || true
+          shasum -a 256 "$DMG" > checksums.txt
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV=$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -n1 || true)
+          if [[ -n "$PREV" ]]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          git log $RANGE --pretty='- %s' --no-merges > changelog.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.APP_NAME }} ${{ steps.version.outputs.version }}
+          body_path: changelog.txt
+          files: |
+            ${{ env.APP_NAME }}-${{ steps.version.outputs.version }}.dmg
+            checksums.txt
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
