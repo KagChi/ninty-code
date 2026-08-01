@@ -30,6 +30,11 @@ jobs:
       - name: Build app (unsigned)
         run: xcodebuild -scheme NintyCode -destination 'platform=macOS,arch=arm64' -configuration Debug -derivedDataPath build/dd build CODE_SIGNING_ALLOWED=NO
 
+      - name: Ad-hoc sign app
+        if: success()
+        # Unsigned apps show "damaged" under quarantine; ad-hoc signature fixes local launch.
+        run: codesign --force --deep --sign - build/dd/Build/Products/Debug/NintyCode.app
+
       - name: Package app
         if: success()
         run: ditto -c -k --keepParent build/dd/Build/Products/Debug/NintyCode.app NintyCode.zip

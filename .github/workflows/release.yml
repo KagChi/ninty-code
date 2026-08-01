@@ -70,6 +70,7 @@ jobs:
           else
             mkdir -p build/export
             cp -R "build/$APP_NAME.xcarchive/Products/Applications/$APP_NAME.app" build/export/
+            codesign --force --deep --sign - "build/export/$APP_NAME.app"
           fi
 
       - name: Notarize

@@ -24,6 +24,12 @@ swift test --package-path Packages/NintyCore
 xcodebuild -scheme NintyCode -destination 'platform=macOS,arch=arm64' build
 ```
 
+CI artifacts and release DMGs are ad-hoc signed (until Developer ID signing is enabled). If macOS reports the app as "damaged", clear the quarantine flag once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/NintyCode.app
+```
+
 ## Configuration
 
 Global config: `~/.config/ninty/ninty.json` — project config: `ninty.json` in your project root.
