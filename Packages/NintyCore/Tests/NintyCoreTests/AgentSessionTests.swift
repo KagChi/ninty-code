@@ -105,13 +105,17 @@ struct AgentSessionTests {
     }
 
     func makeSession(scripts: [[StreamEvent]], agent: Agent = .build) throws -> (AgentSession, MockProvider, SessionStore, EventCollector) {
+        // Unique project + session per test: no cross-test file interference.
+        let testProject = project.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: testProject, withIntermediateDirectories: true)
+        let sessionID = UUID().uuidString
         let provider = MockProvider(scripts: scripts)
         let todoStore = TodoStore()
         let registry = ToolRegistry.builtIns(todoStore: todoStore)
         try? registry.register(EchoTool())
-        let store = SessionStore(projectRoot: project, baseDirectory: base)
+        let store = SessionStore(projectRoot: testProject, baseDirectory: base)
         let session = AgentSession(
-            id: "test-session",
+            id: sessionID,
             agent: agent,
             provider: provider,
             model: "m",
@@ -119,7 +123,7 @@ struct AgentSessionTests {
             registry: registry,
             store: store,
             todoStore: todoStore,
-            projectRoot: project,
+            projectRoot: testProject,
             projectInstructions: nil
         )
         let collector = EventCollector(session: session)
@@ -137,7 +141,7 @@ struct AgentSessionTests {
             .textDelta("Hello"), .textDelta(" back"),
             .usage(input: 10, output: 4), .finish(reason: .stop)
         ]])
-        _ = try await store.create(id: "test-session", title: "t", agentID: "build", model: "m")
+        _ = try await store.create(id: session.id, title: "t", agentID: "build", model: "m")
         await session.send("hi")
         let events = collector.waitFor(10, isDone)
         let text = events.compactMap { if case .textDelta(let d) = $0 { d } else { nil } }.joined()
@@ -146,10 +150,10 @@ struct AgentSessionTests {
             if case .done(let i, let o) = $0 { return i == 10 && o == 4 }
             return false
         })
-        let loaded = try #require(await store.load(id: "test-session"))
+        let loaded = try #require(await store.load(id: session.id))
         #expect(loaded.messages.count == 2)
         #expect(loaded.messages[1].role == .assistant)
-        try await store.delete(id: "test-session")
+        try await store.delete(id: session.id)
     }
 
     @Test("tool call executes and results feed back")
@@ -160,7 +164,7 @@ struct AgentSessionTests {
              .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
             [.textDelta("Used echo."), .usage(input: 30, output: 8), .finish(reason: .stop)]
         ])
-        _ = try await store.create(id: "test-session", title: "t", agentID: "build", model: "m")
+        _ = try await store.create(id: session.id, title: "t", agentID: "build", model: "m")
         await session.send("use echo")
         let events = collector.waitFor(10, isDone)
         #expect(events.contains {
@@ -172,9 +176,9 @@ struct AgentSessionTests {
         let requests = await provider.requests
         #expect(requests.count == 2)
         #expect(requests[1].messages.last?.role == .tool)
-        let loaded = try #require(await store.load(id: "test-session"))
+        let loaded = try #require(await store.load(id: session.id))
         #expect(loaded.messages.count == 4)
-        try await store.delete(id: "test-session")
+        try await store.delete(id: session.id)
     }
 
     @Test("plan mode denies write tool without asking")
@@ -185,7 +189,7 @@ struct AgentSessionTests {
              .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
             [.textDelta("Cannot write in plan mode."), .finish(reason: .stop)]
         ], agent: .plan)
-        _ = try await store.create(id: "test-session", title: "t", agentID: "plan", model: "m")
+        _ = try await store.create(id: session.id, title: "t", agentID: "plan", model: "m")
         await session.send("write a file")
         let events = collector.waitFor(10, isDone)
         #expect(events.contains {
@@ -196,7 +200,7 @@ struct AgentSessionTests {
             if case .permissionAsked = $0 { return true }
             return false
         })
-        try await store.delete(id: "test-session")
+        try await store.delete(id: session.id)
     }
 
     @Test("plan mode bash asks, approval runs command")
@@ -207,7 +211,7 @@ struct AgentSessionTests {
              .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
             [.textDelta("Done."), .finish(reason: .stop)]
         ], agent: .plan)
-        _ = try await store.create(id: "test-session", title: "t", agentID: "plan", model: "m")
+        _ = try await store.create(id: session.id, title: "t", agentID: "plan", model: "m")
         await session.send("run something")
         let askEvents = collector.waitFor(10) {
             if case .permissionAsked = $0 { return true }
@@ -226,6 +230,6 @@ struct AgentSessionTests {
             }
             return false
         })
-        try await store.delete(id: "test-session")
+        try await store.delete(id: session.id)
     }
 }

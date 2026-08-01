@@ -42,10 +42,12 @@ public struct GlobTool: AgentTool {
             return .error("Cannot enumerate: \(base.path)")
         }
         var matches: [(url: URL, mtime: Date)] = []
+        let basePath = base.resolvingSymlinksInPath().path
         for url in files {
-            let relative = url.path.hasPrefix(base.path + "/")
-                ? String(url.path.dropFirst(base.path.count + 1))
-                : url.lastPathComponent
+            let filePath = url.resolvingSymlinksInPath().path
+            let relative = filePath.hasPrefix(basePath + "/")
+                ? String(filePath.dropFirst(basePath.count + 1))
+                : filePath
             if matcher.matches(relative) {
                 let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 matches.append((url, mtime))
