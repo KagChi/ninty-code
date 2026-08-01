@@ -28,4 +28,16 @@ jobs:
       # NOTE: `swift test` hangs on this toolchain (swiftpm-testing-helper). Tests skipped in CI for now.
 
       - name: Build app (unsigned)
-        run: xcodebuild -scheme NintyCode -destination 'platform=macOS,arch=arm64' -configuration Debug build CODE_SIGNING_ALLOWED=NO
+        run: xcodebuild -scheme NintyCode -destination 'platform=macOS,arch=arm64' -configuration Debug -derivedDataPath build/dd build CODE_SIGNING_ALLOWED=NO
+
+      - name: Package app
+        if: success()
+        run: ditto -c -k --keepParent build/dd/Build/Products/Debug/NintyCode.app NintyCode.zip
+
+      - name: Upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NintyCode-debug-macos-arm64
+          path: NintyCode.zip
+          retention-days: 14
