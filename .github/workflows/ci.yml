@@ -26,11 +26,7 @@ jobs:
           restore-keys: ${{ runner.os }}-spm-
 
       - name: Test NintyCore
-        # swiftpm-testing-helper hangs on this toolchain; run the test binary directly.
-        run: |
-          swift build --package-path Packages/NintyCore --build-tests
-          BIN=$(swift build --package-path Packages/NintyCore --build-tests --show-bin-path)
-          "$BIN/NintyCorePackageTests.xctest/Contents/MacOS/NintyCorePackageTests"
+        run: swift test --no-parallel --package-path Packages/NintyCore
 
       - name: Build app (unsigned)
         run: xcodebuild -scheme NintyCode -destination 'platform=macOS,arch=arm64' -configuration Debug build CODE_SIGNING_ALLOWED=NO

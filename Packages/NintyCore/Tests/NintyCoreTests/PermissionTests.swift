@@ -79,8 +79,9 @@ struct PermissionEngineTests {
                 rules: rules, onAsk: { request in asked.value = request }
             )
         }
-        // Wait for the ask to surface.
-        while asked.value == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+        // Wait for the ask to surface (bounded).
+        let surfaced = await waitUntil { asked.value != nil }
+        #expect(surfaced)
         let request = try #require(asked.value)
         #expect(request.tool == "bash")
         await engine.reply(request.id, .always)
@@ -103,7 +104,8 @@ struct PermissionEngineTests {
                 rules: Agent.plan.permissions, onAsk: { asked.value = $0 }
             )
         }
-        while asked.value == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+        let surfaced = await waitUntil { asked.value != nil }
+        #expect(surfaced)
         await engine.reply(asked.value!.id, .reject)
         await #expect(throws: PermissionEngineError.self) { try await task.value }
     }
@@ -118,4 +120,14 @@ final class Locked<T>: @unchecked Sendable {
         get { lock.lock(); defer { lock.unlock() }; return storage }
         set { lock.lock(); defer { lock.unlock() }; storage = newValue }
     }
+}
+
+/// Bounded wait for a condition. Returns false on timeout instead of spinning forever.
+func waitUntil(timeout: TimeInterval = 5, _ condition: @escaping () -> Bool) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() { return true }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return condition()
 }
