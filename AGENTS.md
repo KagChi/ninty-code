@@ -47,6 +47,10 @@ Both must pass before work is considered done.
 ## Git Discipline
 
 - No commits, pushes, or branch mutations unless explicitly requested.
+- Commits follow Conventional Commits: `type(scope): subject`.
+  - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+  - Scope: module affected (`core`, `providers`, `tools`, `mcp`, `app`, `ci`, ...). Omit when repo-wide.
+  - Subject: imperative, lowercase, no trailing period. Example: `feat(tools): add grep include filter`.
 
 ## Docs
 
