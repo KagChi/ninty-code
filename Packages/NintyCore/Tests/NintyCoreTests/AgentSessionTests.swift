@@ -45,22 +45,71 @@ struct EchoTool: AgentTool {
     }
 }
 
-@Suite("AgentSession")
+/// Single event collector for a session: one consumer, polls for predicates.
+final class EventCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [SessionEvent] = []
+    private var task: Task<Void, Never>?
+
+    init(session: AgentSession) {
+        task = nil
+        let collector = Task { [storage = AppendBox(self)] in
+            for await event in session.events {
+                storage.append(event)
+            }
+        }
+        task = collector
+    }
+
+    /// Indirection so init can reference self before full initialization.
+    private struct AppendBox: Sendable {
+        let collector: EventCollector
+        init(_ collector: EventCollector) { self.collector = collector }
+        func append(_ event: SessionEvent) { collector.append(event) }
+    }
+
+    private func append(_ event: SessionEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(event)
+    }
+
+    var events: [SessionEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    /// Poll until an event matches or timeout (seconds).
+    func waitFor(_ timeout: TimeInterval = 10, _ predicate: @escaping (SessionEvent) -> Bool) -> [SessionEvent] {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if events.contains(where: predicate) { return events }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return events
+    }
+
+    deinit { task?.cancel() }
+}
+
+@Suite("AgentSession", .serialized)
 struct AgentSessionTests {
-    func makeSession(
-        scripts: [[StreamEvent]],
-        agent: Agent = .build,
-        base: URL
-    ) async throws -> (AgentSession, MockProvider, SessionStore) {
-        let project = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ninty-agent-\(UUID().uuidString)")
+    var base: URL
+    var project: URL
+
+    init() throws {
+        base = FileManager.default.temporaryDirectory.appendingPathComponent("ninty-agenttest-\(UUID().uuidString)")
+        project = base.appendingPathComponent("project")
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    }
+
+    func makeSession(scripts: [[StreamEvent]], agent: Agent = .build) throws -> (AgentSession, MockProvider, SessionStore, EventCollector) {
         let provider = MockProvider(scripts: scripts)
         let todoStore = TodoStore()
-        var registry = ToolRegistry.builtIns(todoStore: todoStore)
-        try registry.register(EchoTool())
+        let registry = ToolRegistry.builtIns(todoStore: todoStore)
+        try? registry.register(EchoTool())
         let store = SessionStore(projectRoot: project, baseDirectory: base)
-        _ = try await store.create(id: "test-session", title: "t", agentID: agent.id, model: "mock/m")
         let session = AgentSession(
             id: "test-session",
             agent: agent,
@@ -73,114 +122,110 @@ struct AgentSessionTests {
             projectRoot: project,
             projectInstructions: nil
         )
-        return (session, provider, store)
+        let collector = EventCollector(session: session)
+        return (session, provider, store, collector)
     }
 
-    func collectEvents(_ session: AgentSession, until predicate: @Sendable @escaping (SessionEvent) -> Bool) -> [SessionEvent] {
-        var collected: [SessionEvent] = []
-        // Drain the stream in a detached task; poll until predicate satisfied or timeout.
-        let seen = Locked<[SessionEvent]>([])
-        let task = Task.detached {
-            for await event in session.events {
-                seen.value.append(event)
-            }
-        }
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            if let match = seen.value.first(where: predicate) {
-                collected = seen.value
-                _ = match
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        task.cancel()
-        return collected
+    func isDone(_ event: SessionEvent) -> Bool {
+        if case .done = event { return true }
+        return false
     }
 
     @Test("plain text turn completes with done")
     func textTurn() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: base) }
-        let (session, _, store) = try await makeSession(scripts: [[
+        let (session, _, store, collector) = try makeSession(scripts: [[
             .textDelta("Hello"), .textDelta(" back"),
             .usage(input: 10, output: 4), .finish(reason: .stop)
-        ]], base: base)
+        ]])
+        _ = try await store.create(id: "test-session", title: "t", agentID: "build", model: "m")
         await session.send("hi")
-        let events = collectEvents(session) { if case .done = $0 { return true }; return false }
+        let events = collector.waitFor(10, isDone)
         let text = events.compactMap { if case .textDelta(let d) = $0 { d } else { nil } }.joined()
         #expect(text == "Hello back")
-        #expect(events.contains { if case .done(let i, let o) = $0 { i == 10 && o == 4 }; return false })
-        // History persisted: user + assistant.
+        #expect(events.contains {
+            if case .done(let i, let o) = $0 { return i == 10 && o == 4 }
+            return false
+        })
         let loaded = try #require(await store.load(id: "test-session"))
         #expect(loaded.messages.count == 2)
         #expect(loaded.messages[1].role == .assistant)
+        try await store.delete(id: "test-session")
     }
 
     @Test("tool call executes and results feed back")
     func toolTurn() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: base) }
         let args = "{\"text\": \"pong\"}"
-        let (session, provider, store) = try await makeSession(scripts: [
+        let (session, provider, store, collector) = try makeSession(scripts: [
             [.toolCallStart(id: "c1", name: "echo"), .toolCallDelta(id: "c1", argumentsFragment: args),
              .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
             [.textDelta("Used echo."), .usage(input: 30, output: 8), .finish(reason: .stop)]
-        ], base: base)
+        ])
+        _ = try await store.create(id: "test-session", title: "t", agentID: "build", model: "m")
         await session.send("use echo")
-        let events = collectEvents(session) { if case .done = $0 { return true }; return false }
-        #expect(events.contains { if case .toolResult(let id, let name, let output, let isError) = $0 {
-            id == "c1" && name == "echo" && output == "pong" && !isError
-        }; return false })
-        // Second provider request must include tool result message.
+        let events = collector.waitFor(10, isDone)
+        #expect(events.contains {
+            if case .toolResult(let id, let name, let output, let isError) = $0 {
+                return id == "c1" && name == "echo" && output == "pong" && !isError
+            }
+            return false
+        })
         let requests = await provider.requests
         #expect(requests.count == 2)
-        let toolMsg = requests[1].messages.last
-        #expect(toolMsg?.role == .tool)
-        // History: user, assistant(toolCall), tool(result), assistant(text) = 4.
+        #expect(requests[1].messages.last?.role == .tool)
         let loaded = try #require(await store.load(id: "test-session"))
         #expect(loaded.messages.count == 4)
+        try await store.delete(id: "test-session")
     }
 
     @Test("plan mode denies write tool without asking")
     func planDenies() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: base) }
         let args = "{\"path\": \"x.txt\", \"content\": \"hi\"}"
-        let (session, _, _) = try await makeSession(scripts: [
+        let (session, _, store, collector) = try makeSession(scripts: [
             [.toolCallStart(id: "c1", name: "write"), .toolCallDelta(id: "c1", argumentsFragment: args),
              .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
             [.textDelta("Cannot write in plan mode."), .finish(reason: .stop)]
-        ], agent: .plan, base: base)
+        ], agent: .plan)
+        _ = try await store.create(id: "test-session", title: "t", agentID: "plan", model: "m")
         await session.send("write a file")
-        let events = collectEvents(session) { if case .done = $0 { return true }; return false }
-        // Denial surfaces as error tool result; no permissionAsked event.
-        #expect(events.contains { if case .toolResult(_, let name, _, let isError) = $0 {
-            name == "write" && isError
-        }; return false })
-        #expect(!events.contains { if case .permissionAsked = $0 { return true }; return false })
+        let events = collector.waitFor(10, isDone)
+        #expect(events.contains {
+            if case .toolResult(_, let name, _, let isError) = $0 { return name == "write" && isError }
+            return false
+        })
+        #expect(!events.contains {
+            if case .permissionAsked = $0 { return true }
+            return false
+        })
+        try await store.delete(id: "test-session")
     }
 
     @Test("plan mode bash asks, approval runs command")
     func planBashAsk() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: base) }
         let args = "{\"command\": \"echo allowed-cmd\"}"
-        let (session, _, _) = try await makeSession(scripts: [
+        let (session, _, store, collector) = try makeSession(scripts: [
             [.toolCallStart(id: "c1", name: "bash"), .toolCallDelta(id: "c1", argumentsFragment: args),
              .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
             [.textDelta("Done."), .finish(reason: .stop)]
-        ], agent: .plan, base: base)
+        ], agent: .plan)
+        _ = try await store.create(id: "test-session", title: "t", agentID: "plan", model: "m")
         await session.send("run something")
-        // Wait for the ask, then approve.
-        let askEvents = collectEvents(session) { if case .permissionAsked = $0 { return true }; return false }
-        let request = askEvents.compactMap { if case .permissionAsked(let r) = $0 { r } else { nil } }.first
+        let askEvents = collector.waitFor(10) {
+            if case .permissionAsked = $0 { return true }
+            return false
+        }
+        let request = askEvents.compactMap {
+            if case .permissionAsked(let r) = $0 { r } else { nil }
+        }.first
         #expect(request?.tool == "bash")
         #expect(request?.preview == "echo allowed-cmd")
         await session.replyPermission(try #require(request).id, .once)
-        let events = collectEvents(session) { if case .done = $0 { return true }; return false }
-        #expect(events.contains { if case .toolResult(_, let name, let output, let isError) = $0 {
-            name == "bash" && output.contains("allowed-cmd") && !isError
-        }; return false })
+        let events = collector.waitFor(10, isDone)
+        #expect(events.contains {
+            if case .toolResult(_, let name, let output, let isError) = $0 {
+                return name == "bash" && output.contains("allowed-cmd") && !isError
+            }
+            return false
+        })
+        try await store.delete(id: "test-session")
     }
 }
