@@ -52,23 +52,35 @@ public struct AgentConfig: Codable, Sendable, Equatable {
 }
 
 /// Root configuration: global + project layers merged.
+public struct LoggingConfig: Codable, Sendable, Equatable {
+    /// Log provider HTTP requests/responses to ~/.local/share/ninty/logs/provider.log.
+    public var requests: Bool
+
+    public init(requests: Bool = false) {
+        self.requests = requests
+    }
+}
+
 public struct NintyConfig: Codable, Sendable, Equatable {
     /// Default model reference "provider/model".
     public var model: String?
     public var providers: [String: ProviderConfig]
     public var mcp: [String: MCPServerConfig]
     public var agents: [String: AgentConfig]
+    public var logging: LoggingConfig?
 
     public init(
         model: String? = nil,
         providers: [String: ProviderConfig] = [:],
         mcp: [String: MCPServerConfig] = [:],
-        agents: [String: AgentConfig] = [:]
+        agents: [String: AgentConfig] = [:],
+        logging: LoggingConfig? = nil
     ) {
         self.model = model
         self.providers = providers
         self.mcp = mcp
         self.agents = agents
+        self.logging = logging
     }
 
     /// Deep merge: `override` wins per-key; maps merge recursively.
@@ -91,7 +103,8 @@ public struct NintyConfig: Codable, Sendable, Equatable {
                     tools: (base.tools ?? [:]).merging(over.tools ?? [:]) { _, new in new },
                     model: over.model ?? base.model
                 )
-            }
+            },
+            logging: override.logging ?? logging
         )
     }
 }

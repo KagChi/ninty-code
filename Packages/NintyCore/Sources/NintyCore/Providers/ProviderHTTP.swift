@@ -28,7 +28,14 @@ public struct ProviderHTTP: Sendable {
                 onRetry?(attempt, delay)
                 try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
             } catch {
-                if attempt >= Self.maxAttempts { throw ProviderError.network(error.localizedDescription) }
+                if attempt >= Self.maxAttempts {
+                    await RequestLogger.shared.log(
+                        provider: url.host ?? "provider", method: "POST", url: url,
+                        status: nil, requestBody: nil, responseBody: nil,
+                        error: error.localizedDescription
+                    )
+                    throw ProviderError.network(error.localizedDescription)
+                }
                 let delay = Int(Self.backoffSeconds[min(attempt - 1, 2)])
                 onRetry?(attempt, delay)
                 try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
@@ -63,10 +70,17 @@ public struct ProviderHTTP: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
-        request.httpBody = try JSONEncoder().encode(body)
+        let bodyData = try JSONEncoder().encode(body)
+        request.httpBody = bodyData
 
+        let requestBody = String(data: bodyData, encoding: .utf8)
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
+            await RequestLogger.shared.log(
+                provider: providerName(from: url), method: "POST", url: url,
+                status: nil, requestBody: requestBody, responseBody: nil,
+                error: "non-HTTP response"
+            )
             throw ProviderError.invalidResponse("non-HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
@@ -75,9 +89,22 @@ public struct ProviderHTTP: Sendable {
                 errorBody += line
                 if errorBody.count > 4096 { break }
             }
+            await RequestLogger.shared.log(
+                provider: providerName(from: url), method: "POST", url: url,
+                status: http.statusCode, requestBody: requestBody, responseBody: errorBody
+            )
             throw ProviderError.http(status: http.statusCode, body: errorBody)
         }
+        await RequestLogger.shared.log(
+            provider: providerName(from: url), method: "POST", url: url,
+            status: http.statusCode, requestBody: requestBody, responseBody: nil
+        )
         return (bytes, http)
+    }
+
+    /// Host name doubles as the log's provider tag — presets hit distinct hosts.
+    private func providerName(from url: URL) -> String {
+        url.host ?? "provider"
     }
 }
 
