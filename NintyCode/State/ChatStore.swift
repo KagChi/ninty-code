@@ -57,6 +57,8 @@ final class ChatStore {
     let projectRoot: URL
     private(set) var agent: Agent
     private(set) var model: String
+    /// Full "provider/model" reference — persisted in meta so reopening restores the provider too.
+    private(set) var modelReference: String
 
     private let session: AgentSession
     private let store: SessionStore
@@ -69,6 +71,7 @@ final class ChatStore {
         agent: Agent,
         provider: any ModelProvider,
         model: String,
+        modelReference: String,
         contextWindow: Int,
         maxOutput: Int = 8_192,
         projectRoot: URL,
@@ -79,6 +82,7 @@ final class ChatStore {
         self.sessionID = sessionID
         self.agent = agent
         self.model = model
+        self.modelReference = modelReference
         self.projectRoot = projectRoot
         self.contextWindow = contextWindow
         self.onChange = onChange
@@ -260,7 +264,7 @@ final class ChatStore {
             metaCreated = true
             let title = String(trimmed.prefix(60))
             Task {
-                try? await store.create(id: sessionID, title: title, agentID: agent.id, model: model)
+                try? await store.create(id: sessionID, title: title, agentID: agent.id, model: modelReference)
                 onChange()
             }
         }
@@ -338,12 +342,18 @@ final class ChatStore {
     /// Switch agent in place — history kept, next message uses the new agent.
     func setAgent(_ newAgent: Agent) {
         Task { await session.setAgent(newAgent) }
-        persistSelection(agentID: newAgent.id, model: model)
+        persistSelection(agentID: newAgent.id, model: modelReference)
     }
 
-    func setModel(_ newModel: String) {
-        Task { await session.setModel(newModel) }
-        persistSelection(agentID: agent.id, model: newModel)
+    /// Switch model in place. Provider is rebuilt by AppState and swapped too —
+    /// without this the stream would keep hitting the old vendor's endpoint.
+    func setModel(provider: any ModelProvider, reference: String, contextWindow: Int, maxOutput: Int) {
+        guard let (_, modelID) = ProviderRegistry.split(reference) else { return }
+        model = modelID
+        modelReference = reference
+        self.contextWindow = contextWindow
+        Task { await session.setProvider(provider, model: modelID, contextWindow: contextWindow, maxOutput: maxOutput) }
+        persistSelection(agentID: agent.id, model: reference)
     }
 
     private func persistSelection(agentID: String, model: String) {
@@ -386,7 +396,7 @@ final class ChatStore {
             Task {
                 try? await store.create(
                     id: sessionID, title: "$ \(trimmed.prefix(55))",
-                    agentID: agent.id, model: model
+                    agentID: agent.id, model: modelReference
                 )
                 onChange()
             }

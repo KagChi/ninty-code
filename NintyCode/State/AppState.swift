@@ -39,6 +39,8 @@ final class AppState {
     // Dialogs
     var showModelDialog = false
     var showCommandPalette = false
+    /// Right side panel (review/files) — ⇧⌘R, opencode v2 titlebar toggle.
+    var showSidePanel = false
 
     /// Recent model references, newest first, max 5 (opencode recent-ring).
     var recentModels: [String] = []
@@ -239,14 +241,34 @@ final class AppState {
     }
 
     /// Switch model on the live chat — in place. Explicit selects push to recents.
+    /// Provider is rebuilt and swapped too: model id alone would keep streaming
+    /// from the old vendor's endpoint.
     func selectModel(_ reference: String) {
         selectedModel = reference
         recentModels.removeAll { $0 == reference }
         recentModels.insert(reference, at: 0)
         if recentModels.count > 5 { recentModels.removeLast(recentModels.count - 5) }
         UserDefaults.standard.set(recentModels, forKey: "recentModels")
-        guard let (_, modelID) = ProviderRegistry.split(reference) else { return }
-        activeChat?.setModel(modelID)
+        guard let chat = activeChat,
+              let registry, let resolved,
+              let (providerID, modelID) = ProviderRegistry.split(reference) else { return }
+        do {
+            let apiKey = configLoader.resolveAPIKey(provider: providerID, config: resolved.config)
+            let baseURLOverride = resolved.config.providers[providerID]?.baseURL
+            let provider = try registry.makeProvider(
+                id: providerID, apiKey: apiKey, baseURLOverride: baseURLOverride
+            )
+            let catalog = registry.preset(id: providerID)?.models ?? []
+            let info = catalog.first { $0.id == modelID }
+            chat.setModel(
+                provider: provider,
+                reference: reference,
+                contextWindow: info?.contextWindow ?? 128_000,
+                maxOutput: info?.maxOutput ?? 8_192
+            )
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     /// ⌘. / /agent — cycle to next agent (wrap-around, opencode order = list order).
@@ -280,6 +302,7 @@ final class AppState {
                 agent: selectedAgent,
                 provider: provider,
                 model: modelID,
+                modelReference: selectedModel,
                 contextWindow: contextWindow,
                 maxOutput: maxOutput,
                 projectRoot: projectRoot,

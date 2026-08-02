@@ -39,9 +39,9 @@ public actor AgentSession {
     public nonisolated let events: AsyncStream<SessionEvent>
 
     private let continuation: AsyncStream<SessionEvent>.Continuation
-    private let provider: any ModelProvider
-    private let contextWindow: Int
-    private let maxOutput: Int
+    private var provider: any ModelProvider
+    private var contextWindow: Int
+    private var maxOutput: Int
     private let registry: ToolRegistry
     private let permissionEngine: PermissionEngine
     private let store: SessionStore
@@ -166,6 +166,16 @@ public actor AgentSession {
 
     public func setModel(_ newModel: String) {
         model = newModel
+        continuation.yield(.modelChanged(newModel))
+    }
+
+    /// Switch provider mid-session (model dialog picked a different vendor):
+    /// history kept, next turn streams from the new provider.
+    public func setProvider(_ newProvider: any ModelProvider, model newModel: String, contextWindow: Int, maxOutput: Int) {
+        provider = newProvider
+        model = newModel
+        self.contextWindow = contextWindow
+        self.maxOutput = maxOutput
         continuation.yield(.modelChanged(newModel))
     }
 
