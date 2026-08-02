@@ -8,9 +8,11 @@ struct ChatView: View {
     @State private var userScrolledUp = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            messageTimeline
-            VStack(spacing: 6) {
+        VStack(spacing: 0) {
+            SessionHeader(store: store)
+            ZStack(alignment: .bottom) {
+                messageTimeline
+                VStack(spacing: 6) {
                 if let request = store.pendingPermission {
                     PermissionDock(request: request) { reply in
                         store.replyPermission(reply)
@@ -25,12 +27,13 @@ struct ChatView: View {
                 if !store.todos.isEmpty {
                     TodoDock(todos: store.todos)
                 }
-                // opencode: composer hidden while a permission blocks the session.
-                if store.pendingPermission == nil {
-                    ComposerView(store: store)
+                    // opencode: composer hidden while a permission blocks the session.
+                    if store.pendingPermission == nil {
+                        ComposerView(store: store)
+                    }
                 }
+                .padding(.bottom, 12)
             }
-            .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -427,6 +430,111 @@ struct ChangedFilesRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// opencode v2 session header: editable title + context usage + overflow menu.
+struct SessionHeader: View {
+    let store: ChatStore
+    @Environment(AppState.self) private var appState
+    @State private var editing = false
+    @State private var draftTitle = ""
+
+    private var title: String {
+        appState.sessions.first { $0.id == store.sessionID }?.title ?? "New session"
+    }
+
+    private var contextFraction: Double {
+        guard store.contextWindow > 0 else { return 0 }
+        return min(1, Double(store.lastInputTokens) / Double(store.contextWindow))
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if editing {
+                TextField("Session title", text: $draftTitle, onCommit: commitRename)
+                    .textFieldStyle(.plain)
+                    .font(Theme.sansMedium)
+                    .foregroundStyle(Theme.textBase)
+                    .onExitCommand { editing = false }
+            } else {
+                Text(title)
+                    .font(Theme.sansMedium)
+                    .foregroundStyle(Theme.textBase)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(titleHovered ? Theme.overlayHover : .clear, in: .rect(cornerRadius: Theme.radiusSmall))
+                    .onHover { titleHovered = $0 }
+                    .onTapGesture(count: 2) { startRename() }
+            }
+
+            Spacer()
+
+            // Context usage meter (opencode SessionContextUsage).
+            if store.lastInputTokens > 0 {
+                HStack(spacing: 5) {
+                    Circle()
+                        .trim(from: 0, to: contextFraction)
+                        .stroke(contextColor, lineWidth: 2)
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 10, height: 10)
+                        .background(Circle().stroke(Theme.borderMuted, lineWidth: 2))
+                    Text("\(Int(contextFraction * 100))%")
+                        .font(Theme.tiny)
+                        .foregroundStyle(Theme.textFaint)
+                }
+                .help("\(store.lastInputTokens.formatted()) / \(store.contextWindow.formatted()) tokens")
+            }
+
+            Menu {
+                Button("Rename…") { startRename() }
+                Button("Fork…") { store.showForkDialog = true }
+                Button("Compact") { store.compact() }
+                Divider()
+                Button("Close tab") {
+                    if let chat = appState.activeChat { appState.closeTab(chat) }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textFaint)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 44)
+        .background(
+            // Gradient fade into timeline (opencode sticky header).
+            LinearGradient(
+                colors: [Theme.bgBase, Theme.bgBase.opacity(0)],
+                startPoint: .top, endPoint: .bottom
+            )
+        )
+    }
+
+    @State private var titleHovered = false
+
+    private func startRename() {
+        draftTitle = title
+        editing = true
+    }
+
+    private func commitRename() {
+        editing = false
+        let trimmed = draftTitle.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != title else { return }
+        store.rename(trimmed)
+        appState.reloadSessions()
+    }
+
+    private var contextColor: Color {
+        if contextFraction > 0.9 { return Theme.danger }
+        if contextFraction > 0.7 { return Theme.warning }
+        return Theme.textAccent
     }
 }
 

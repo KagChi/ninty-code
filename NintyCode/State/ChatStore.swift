@@ -49,6 +49,9 @@ final class ChatStore {
     var isActive = false
     /// Background activity marker (opencode unread dot).
     var hasUnread = false
+    /// Last turn's token usage (context meter in session header).
+    var lastInputTokens = 0
+    var contextWindow = 128_000
 
     let sessionID: String
     let projectRoot: URL
@@ -77,6 +80,7 @@ final class ChatStore {
         self.agent = agent
         self.model = model
         self.projectRoot = projectRoot
+        self.contextWindow = contextWindow
         self.onChange = onChange
 
         let todoStore = TodoStore()
@@ -201,7 +205,8 @@ final class ChatStore {
             lastError = message
             streaming = false
             retry = nil
-        case .done:
+        case .done(let input, _):
+            lastInputTokens = input
             streaming = false
             pendingPermission = nil
             retry = nil
@@ -363,6 +368,11 @@ final class ChatStore {
     /// /compact — summarize context with the current model.
     func compact() {
         Task { await session.compactNow() }
+    }
+
+    /// Rename the session (sidecar meta).
+    func rename(_ title: String) {
+        Task { try? await store.updateTitle(title, sessionID: sessionID) }
     }
 
     /// Shell mode submit: run via BashTool, output as a tool-style message.
