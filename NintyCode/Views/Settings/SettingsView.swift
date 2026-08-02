@@ -1,19 +1,93 @@
 import SwiftUI
 import NintyCore
 
+/// opencode dialog-settings: left sidebar of sections + content pane.
 struct SettingsView: View {
+    @Environment(AppState.self) private var appState
+    @State private var section: SettingsSection = .general
+
+    enum SettingsSection: String, CaseIterable, Identifiable {
+        case general = "General"
+        case providers = "Providers"
+        case mcp = "MCP"
+        case logging = "Logging"
+        case about = "About"
+
+        var id: String { rawValue }
+        var icon: String {
+            switch self {
+            case .general: return "gear"
+            case .providers: return "key"
+            case .mcp: return "server.rack"
+            case .logging: return "doc.text"
+            case .about: return "info.circle"
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            List(SettingsSection.allCases, selection: $section) { item in
+                Label(item.rawValue, systemImage: item.icon)
+                    .tag(item)
+            }
+            .listStyle(.sidebar)
+            .frame(minWidth: 160)
+        } detail: {
+            Group {
+                switch section {
+                case .general: GeneralSettingsView()
+                case .providers: ProvidersSettingsView()
+                case .mcp: MCPSettingsView()
+                case .logging: LoggingSettingsView()
+                case .about: AboutSettingsView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 680, height: 480)
+    }
+}
+
+// MARK: - General
+
+struct GeneralSettingsView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        TabView {
-            ProvidersSettingsView()
-                .tabItem { Label("Providers", systemImage: "key") }
-            MCPSettingsView()
-                .tabItem { Label("MCP", systemImage: "server.rack") }
-            GeneralSettingsView()
-                .tabItem { Label("General", systemImage: "gear") }
+        Form {
+            Section("Session") {
+                Picker("Default model", selection: Binding(
+                    get: { appState.selectedModel },
+                    set: { appState.selectModel($0) }
+                )) {
+                    ForEach(modelOptions, id: \.self) { reference in
+                        Text(reference).tag(reference)
+                    }
+                }
+                Text("Used for new sessions. Switch any time with ⌘'.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Behavior") {
+                Toggle("Auto-accept permissions (⇧⌘A in session)", isOn: Binding(
+                    get: { appState.activeChat?.autoAccept ?? false },
+                    set: { appState.activeChat?.autoAccept = $0 }
+                ))
+                .disabled(appState.activeChat == nil)
+                Text("Applies to the active session's permission prompts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .frame(width: 520, height: 420)
+        .formStyle(.grouped)
+    }
+
+    private var modelOptions: [String] {
+        guard let registry = appState.registry else { return [] }
+        return registry.presets.flatMap { preset in
+            preset.models.map { "\(preset.id)/\($0.id)" }
+        }
     }
 }
 
@@ -24,6 +98,11 @@ struct ProvidersSettingsView: View {
     @State private var keys: [String: String] = [:]
     @State private var baseURLs: [String: String] = [:]
     @State private var customProviders: [CustomProviderDraft] = []
+    @State private var testResults: [String: TestState] = [:]
+
+    enum TestState: Equatable {
+        case testing, ok(Int), failed(String)
+    }
 
     /// Bundled preset ids — everything else in config is a custom provider.
     private var bundledIDs: Set<String> {
@@ -34,17 +113,34 @@ struct ProvidersSettingsView: View {
         Form {
             if let registry = appState.registry {
                 ForEach(registry.presets.filter { bundledIDs.contains($0.id) && $0.id != "custom" }, id: \.id) { preset in
-                    Section(preset.name) {
+                    Section {
                         if let keyEnv = preset.keyEnv {
-                            SecureField("API Key (env: \(keyEnv))", text: binding(for: preset.id))
-                                .textContentType(.password)
-                                .onSubmit { save(preset.id) }
+                            LabeledContent {
+                                SecureField("API Key (env: \(keyEnv))", text: binding(for: preset.id))
+                                    .textContentType(.password)
+                                    .onSubmit { save(preset.id) }
+                            } label: {
+                                Text("API Key")
+                            }
                         }
-                        TextField("Base URL", text: urlBinding(for: preset.id))
-                            .onSubmit { saveBaseURL(preset.id) }
-                        Text("Default: \(preset.baseURL)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        LabeledContent("Base URL") {
+                            TextField(preset.baseURL, text: urlBinding(for: preset.id))
+                                .onSubmit { saveBaseURL(preset.id) }
+                        }
+                        HStack {
+                            testButton(providerID: preset.id)
+                            Spacer()
+                            testStatus(providerID: preset.id)
+                        }
+                    } header: {
+                        HStack {
+                            Text(preset.name)
+                            if appState.storedAPIKey(for: preset.id).isEmpty == false {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.caption)
+                            }
+                        }
                     }
                 }
             }
@@ -53,7 +149,9 @@ struct ProvidersSettingsView: View {
                 ForEach($customProviders) { $draft in
                     CustomProviderRow(
                         draft: $draft,
+                        testState: testResults[draft.id],
                         onSave: { saveCustom(draft) },
+                        onTest: { testProvider(draft.id) },
                         onDelete: { deleteCustom(draft.id) }
                     )
                 }
@@ -62,6 +160,50 @@ struct ProvidersSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear { load() }
+    }
+
+    @ViewBuilder
+    private func testButton(providerID: String) -> some View {
+        Button("Test Connection") { testProvider(providerID) }
+            .controlSize(.small)
+            .disabled(testResults[providerID] == .testing)
+    }
+
+    @ViewBuilder
+    private func testStatus(providerID: String) -> some View {
+        switch testResults[providerID] {
+        case .testing:
+            ProgressView().controlSize(.mini)
+        case .ok(let count):
+            Text("OK — \(count) models").font(.caption).foregroundStyle(.green)
+        case .failed(let error):
+            Text(error).font(.caption).foregroundStyle(.red).lineLimit(1)
+        case nil:
+            EmptyView()
+        }
+    }
+
+    private func testProvider(_ id: String) {
+        testResults[id] = .testing
+        Task {
+            defer { if testResults[id] == .testing { testResults[id] = nil } }
+            guard let registry = appState.registry, let resolved = appState.resolved else {
+                testResults[id] = .failed("not configured")
+                return
+            }
+            do {
+                let apiKey = ConfigLoader().resolveAPIKey(provider: id, config: resolved.config)
+                let provider = try registry.makeProvider(
+                    id: id,
+                    apiKey: apiKey,
+                    baseURLOverride: resolved.config.providers[id]?.baseURL
+                )
+                let models = try await provider.models()
+                testResults[id] = .ok(models.count)
+            } catch {
+                testResults[id] = .failed(error.localizedDescription)
+            }
+        }
     }
 
     private func binding(for provider: String) -> Binding<String> {
@@ -167,7 +309,9 @@ struct CustomProviderDraft: Identifiable, Equatable {
 struct CustomProviderRow: View {
     @Environment(AppState.self) private var appState
     @Binding var draft: CustomProviderDraft
+    let testState: ProvidersSettingsView.TestState?
     let onSave: () -> Void
+    let onTest: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -190,8 +334,24 @@ struct CustomProviderRow: View {
             ))
             TextField("Model IDs, comma-separated", text: $draft.modelIDs)
                 .onSubmit(onSave)
-            Button("Save", action: onSave)
-                .controlSize(.small)
+            HStack {
+                Button("Save", action: onSave)
+                    .controlSize(.small)
+                Button("Test Connection", action: onTest)
+                    .controlSize(.small)
+                    .disabled(testState == .testing)
+                Spacer()
+                switch testState {
+                case .testing:
+                    ProgressView().controlSize(.mini)
+                case .ok(let count):
+                    Text("OK — \(count) models").font(.caption).foregroundStyle(.green)
+                case .failed(let error):
+                    Text(error).font(.caption).foregroundStyle(.red).lineLimit(1)
+                case nil:
+                    EmptyView()
+                }
+            }
         }
         .padding(.vertical, 4)
     }
@@ -286,26 +446,94 @@ struct MCPSettingsView: View {
     }
 }
 
-// MARK: - General
+// MARK: - Logging
 
-struct GeneralSettingsView: View {
+struct LoggingSettingsView: View {
     @Environment(AppState.self) private var appState
+    @State private var requestsEnabled = false
+    @State private var logSize = ""
+
+    private var logURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/ninty/logs/provider.log")
+    }
 
     var body: some View {
         Form {
-            Section("Model") {
-                TextField("Default model (provider/model)", text: Binding(
-                    get: { appState.selectedModel },
-                    set: { appState.selectedModel = $0 }
-                ))
-                Text("e.g. anthropic/claude-sonnet-4-5, ollama/qwen3")
+            Section("Provider Requests") {
+                Toggle("Log requests to provider.log", isOn: $requestsEnabled)
+                    .onChange(of: requestsEnabled) { _, value in
+                        save(value)
+                    }
+                Text("Method, URL, status and truncated bodies. API keys are never written. Env override: NINTY_LOG_REQUESTS=1.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("About") {
+            Section("Log File") {
+                LabeledContent("Path", value: logURL.path)
+                    .font(.caption)
+                LabeledContent("Size", value: logSize)
+                HStack {
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([logURL])
+                    }
+                    Button("Clear") {
+                        try? FileManager.default.removeItem(at: logURL)
+                        refreshSize()
+                    }
+                    .disabled(logSize == "0 KB")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            requestsEnabled = appState.resolved?.config.logging?.requests ?? false
+            refreshSize()
+        }
+    }
+
+    private func save(_ value: Bool) {
+        do {
+            var config = GlobalConfigWriter().load()
+            config.logging = LoggingConfig(requests: value)
+            try GlobalConfigWriter().save(config)
+            appState.reloadConfig()
+        } catch {
+            appState.lastError = error.localizedDescription
+        }
+    }
+
+    private func refreshSize() {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: logURL.path),
+              let size = attrs[.size] as? Int else {
+            logSize = "0 KB"
+            return
+        }
+        logSize = ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+    }
+}
+
+// MARK: - About
+
+struct AboutSettingsView: View {
+    var body: some View {
+        Form {
+            Section("ninty-code") {
                 LabeledContent("Version", value: "0.1.0")
+                LabeledContent("Build", value: "macOS 26+, arm64")
+                LabeledContent("License", value: "MIT")
+            }
+            Section("Paths") {
                 LabeledContent("Config", value: "~/.config/ninty/ninty.json")
                     .font(.caption)
+                LabeledContent("Sessions", value: "~/.local/share/ninty/")
+                    .font(.caption)
+                LabeledContent("Logs", value: "~/.local/share/ninty/logs/")
+                    .font(.caption)
+            }
+            Section {
+                Link("GitHub Repository", destination: URL(string: "https://github.com/KagChi/ninty-code")!)
+                Link("Report an Issue", destination: URL(string: "https://github.com/KagChi/ninty-code/issues")!)
             }
         }
         .formStyle(.grouped)
