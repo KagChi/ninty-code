@@ -16,6 +16,9 @@ struct ChatView: View {
                         store.replyPermission(reply)
                     }
                 }
+                if !store.followups.isEmpty {
+                    FollowupDock(store: store)
+                }
                 if !store.todos.isEmpty {
                     TodoDock(todos: store.todos)
                 }
@@ -158,6 +161,62 @@ struct TodoDock: View {
             Image(systemName: "circle")
                 .foregroundStyle(Theme.textFaint)
         }
+    }
+}
+
+/// opencode follow-up dock: "N queued messages", per-item Send now / Edit.
+struct FollowupDock: View {
+    let store: ChatStore
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "tray.full")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textFaint)
+                    Text("\(store.followups.count) queued message\(store.followups.count == 1 ? "" : "s")")
+                        .font(Theme.smallMedium)
+                        .foregroundStyle(Theme.textBase)
+                    Spacer()
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(expanded ? 0 : 180))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(store.followups.enumerated()), id: \.offset) { index, text in
+                        HStack(spacing: 8) {
+                            Text(text)
+                                .font(Theme.small)
+                                .foregroundStyle(Theme.textMuted)
+                                .lineLimit(2)
+                            Spacer()
+                            Button("Send now") { store.sendFollowupNow(at: index) }
+                                .buttonStyle(DockButtonStyle(variant: .secondary))
+                                .controlSize(.small)
+                            Button("Edit") { store.editFollowup(at: index) }
+                                .buttonStyle(DockButtonStyle(variant: .ghost))
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
+        }
+        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: 800)
     }
 }
 

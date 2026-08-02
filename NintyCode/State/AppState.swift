@@ -132,14 +132,30 @@ final class AppState {
         activeChat = makeChat(sessionID: UUID().uuidString)
     }
 
+    /// Open an existing session: restore its saved agent/model selection (opencode per-session persistence).
     func openChat(_ id: String) {
+        if let meta = sessions.first(where: { $0.id == id }) {
+            if let agent = agents.first(where: { $0.id == meta.agentID }) {
+                selectedAgentID = agent.id
+            }
+            if ProviderRegistry.split(meta.model) != nil {
+                selectedModel = meta.model
+            }
+        }
         activeChat = makeChat(sessionID: id)
     }
 
-    /// Recreate the active chat with the currently selected agent (same session id, history restored).
-    func reopenChatWithAgent() {
-        guard let id = activeChat?.sessionID else { return }
-        activeChat = makeChat(sessionID: id)
+    /// Switch agent on the live chat — in place, no history loss.
+    func selectAgent(_ agent: Agent) {
+        selectedAgentID = agent.id
+        activeChat?.setAgent(agent)
+    }
+
+    /// Switch model on the live chat — in place.
+    func selectModel(_ reference: String) {
+        selectedModel = reference
+        guard let (_, modelID) = ProviderRegistry.split(reference) else { return }
+        activeChat?.setModel(modelID)
     }
 
     private func makeChat(sessionID: String) -> ChatStore? {
@@ -159,13 +175,16 @@ final class AppState {
                 id: providerID, apiKey: apiKey, baseURLOverride: baseURLOverride
             )
             let catalog = registry.preset(id: providerID)?.models ?? []
-            let contextWindow = catalog.first { $0.id == modelID }?.contextWindow ?? 128_000
+            let info = catalog.first { $0.id == modelID }
+            let contextWindow = info?.contextWindow ?? 128_000
+            let maxOutput = info?.maxOutput ?? 8_192
             return ChatStore(
                 sessionID: sessionID,
                 agent: selectedAgent,
                 provider: provider,
                 model: modelID,
                 contextWindow: contextWindow,
+                maxOutput: maxOutput,
                 projectRoot: projectRoot,
                 projectInstructions: resolved.projectInstructions,
                 mcpManager: mcpManager,

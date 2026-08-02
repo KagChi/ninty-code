@@ -178,4 +178,21 @@ public actor SessionStore {
         index[id] = nil
         saveIndex()
     }
+
+    /// Update the session title (sidecar index only — meta record in the file keeps the original).
+    public func updateTitle(_ title: String, sessionID: String) throws {
+        guard var meta = index[sessionID] else { return }
+        meta.title = title
+        index[sessionID] = meta
+        saveIndex()
+    }
+
+    /// Update agent/model selection (sidecar index only).
+    public func updateSelection(agentID: String, model: String, sessionID: String) throws {
+        guard var meta = index[sessionID] else { return }
+        meta.agentID = agentID
+        meta.model = model
+        index[sessionID] = meta
+        saveIndex()
+    }
 }

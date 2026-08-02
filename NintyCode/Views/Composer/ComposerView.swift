@@ -17,6 +17,13 @@ struct ComposerView: View {
             }
             panel
         }
+        .onChange(of: store.restoredDraft) {
+            if let draft = store.restoredDraft {
+                text = draft
+                store.restoredDraft = nil
+                focused = true
+            }
+        }
     }
 
     private var panel: some View {
@@ -71,8 +78,7 @@ struct ComposerView: View {
         Menu {
             ForEach(appState.agents) { agent in
                 Button {
-                    appState.selectedAgentID = agent.id
-                    appState.reopenChatWithAgent()
+                    appState.selectAgent(agent)
                 } label: {
                     if agent.id == store.agent.id {
                         Label(agent.name, systemImage: "checkmark")
@@ -111,7 +117,7 @@ struct ComposerView: View {
                         Section(preset.name) {
                             ForEach(preset.models, id: \.id) { model in
                                 Button(model.name) {
-                                    appState.selectedModel = "\(preset.id)/\(model.id)"
+                                    appState.selectModel("\(preset.id)/\(model.id)")
                                 }
                             }
                         }

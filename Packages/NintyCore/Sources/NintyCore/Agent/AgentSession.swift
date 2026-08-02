@@ -9,6 +9,10 @@ public enum SessionEvent: Sendable {
     case permissionResolved(id: String, reply: PermissionReply)
     case todosChanged([TodoItem])
     case compacted
+    case queueChanged([String])
+    case titleGenerated(String)
+    case agentChanged(Agent)
+    case modelChanged(String)
     case error(String)
     case done(input: Int, output: Int)
 }
@@ -18,25 +22,35 @@ public enum AgentSessionError: Error, Sendable {
 }
 
 /// One live agent conversation: stream → tool calls → results → repeat.
+/// opencode parity: steer queue (send while busy enqueues), mutable agent/model,
+/// compaction at input-limit minus reserve, LLM session titles.
 public actor AgentSession {
     public let id: String
-    public let agent: Agent
+    public private(set) var agent: Agent
+    public private(set) var model: String
     public nonisolated let events: AsyncStream<SessionEvent>
 
     private let continuation: AsyncStream<SessionEvent>.Continuation
     private let provider: any ModelProvider
-    private let model: String
     private let contextWindow: Int
+    private let maxOutput: Int
     private let registry: ToolRegistry
     private let permissionEngine: PermissionEngine
     private let store: SessionStore
     private let todoStore: TodoStore
     private let projectRoot: URL
-    private let systemPrompt: String
+    private let projectInstructions: String?
+    private var systemPrompt: String
 
     private var history: [Message]
     private var lastInputTokens = 0
     private var currentTask: Task<Void, Never>?
+    /// Steer queue: messages sent while a turn is running, drained between turns.
+    private var followups: [String] = []
+    private var busy = false
+    /// Monotonic turn id: a cancelled turn only clears `busy` if it is still current.
+    private var turnEpoch = 0
+    private var titleTask: Task<Void, Never>?
 
     public init(
         id: String = UUID().uuidString,
@@ -44,6 +58,7 @@ public actor AgentSession {
         provider: any ModelProvider,
         model: String,
         contextWindow: Int,
+        maxOutput: Int = 8_192,
         registry: ToolRegistry,
         store: SessionStore,
         todoStore: TodoStore,
@@ -55,12 +70,25 @@ public actor AgentSession {
         self.provider = provider
         self.model = model
         self.contextWindow = contextWindow
+        self.maxOutput = maxOutput
         self.registry = registry
         self.store = store
         self.todoStore = todoStore
         self.projectRoot = projectRoot
+        self.projectInstructions = projectInstructions
         self.permissionEngine = PermissionEngine()
 
+        self.systemPrompt = ""
+        self.history = []
+        var continuation: AsyncStream<SessionEvent>.Continuation!
+        self.events = AsyncStream { continuation = $0 }
+        self.continuation = continuation
+        self.systemPrompt = Self.buildSystemPrompt(
+            agent: agent, projectRoot: projectRoot, projectInstructions: projectInstructions
+        )
+    }
+
+    private static func buildSystemPrompt(agent: Agent, projectRoot: URL, projectInstructions: String?) -> String {
         var prompt = agent.systemPrompt + """
 
         Environment:
@@ -71,12 +99,7 @@ public actor AgentSession {
         if let instructions = projectInstructions, !instructions.isEmpty {
             prompt += "\n\nProject instructions (AGENTS.md):\n\(instructions)"
         }
-        self.systemPrompt = prompt
-
-        self.history = []
-        var continuation: AsyncStream<SessionEvent>.Continuation!
-        self.events = AsyncStream { continuation = $0 }
-        self.continuation = continuation
+        return prompt
     }
 
     /// Resume an existing session from disk.
@@ -86,10 +109,53 @@ public actor AgentSession {
 
     // MARK: - Public API
 
-    /// Start a user turn. Returns immediately; progress arrives via `events`.
+    /// Start a user turn, or steer: if a turn is running, queue and return.
+    /// opencode default is "steer" — the queued message is sent when the turn ends.
     public func send(_ text: String) {
+        if busy {
+            followups.append(text)
+            continuation.yield(.queueChanged(followups))
+            return
+        }
+        startTurn(text)
+    }
+
+    /// Pull a queued follow-up back out (user edited it into the composer).
+    public func dequeueFollowup(at index: Int) -> String? {
+        guard followups.indices.contains(index) else { return nil }
+        let item = followups.remove(at: index)
+        continuation.yield(.queueChanged(followups))
+        return item
+    }
+
+    /// Send the head of the queue immediately (interrupts current turn like opencode "Send now").
+    public func sendFollowupNow(at index: Int) {
+        guard let item = dequeueFollowup(at: index) else { return }
         currentTask?.cancel()
-        currentTask = Task { await self.runTurn(text) }
+        busy = false
+        startTurn(item)
+    }
+
+    /// Interrupt the current turn. Queue is paused, NOT cleared (opencode Esc semantics).
+    public func abort() {
+        currentTask?.cancel()
+        busy = false
+        Task { await permissionEngine.rejectAll() }
+        continuation.yield(.queueChanged(followups))
+    }
+
+    /// Switch agent mid-session: history kept, next message carries new agent.
+    public func setAgent(_ newAgent: Agent) {
+        agent = newAgent
+        systemPrompt = Self.buildSystemPrompt(
+            agent: newAgent, projectRoot: projectRoot, projectInstructions: projectInstructions
+        )
+        continuation.yield(.agentChanged(newAgent))
+    }
+
+    public func setModel(_ newModel: String) {
+        model = newModel
+        continuation.yield(.modelChanged(newModel))
     }
 
     public func replyPermission(_ id: String, _ reply: PermissionReply) async {
@@ -97,17 +163,23 @@ public actor AgentSession {
         await permissionEngine.reply(id, reply)
     }
 
-    public func abort() {
-        currentTask?.cancel()
-        Task { await permissionEngine.rejectAll() }
+    private func startTurn(_ text: String) {
+        busy = true
+        turnEpoch += 1
+        let epoch = turnEpoch
+        currentTask = Task { await self.runTurn(text, epoch: epoch) }
     }
 
     // MARK: - Turn loop
 
-    private func runTurn(_ text: String) async {
+    private func runTurn(_ text: String, epoch: Int) async {
+        let isFirstUserMessage = !history.contains { $0.role == .user }
         let userMessage = Message.user(text)
         history.append(userMessage)
         try? await store.append(userMessage, sessionID: id)
+
+        // Only the current epoch clears busy — a cancelled superseded turn must not.
+        defer { if epoch == turnEpoch { busy = false } }
 
         while !Task.isCancelled {
             await compactIfNeeded()
@@ -155,6 +227,8 @@ public actor AgentSession {
                     }
                 }
             } catch {
+                busy = false
+                drainQueue()
                 continuation.yield(.error(error.localizedDescription))
                 return
             }
@@ -173,8 +247,12 @@ public actor AgentSession {
                 try? await store.append(assistantMessage, sessionID: id)
             }
 
+            if isFirstUserMessage { scheduleTitleGeneration(from: text) }
+
             guard finishReason == .toolCalls, !completedCalls.isEmpty else {
+                busy = false
                 continuation.yield(.done(input: usage?.input ?? 0, output: usage?.output ?? 0))
+                drainQueue()
                 return
             }
 
@@ -204,6 +282,41 @@ public actor AgentSession {
             let toolMessage = Message(role: .tool, parts: results)
             history.append(toolMessage)
             try? await store.append(toolMessage, sessionID: id)
+        }
+    }
+
+    /// Steer drain: if follow-ups queued while busy, send the head as the next turn.
+    private func drainQueue() {
+        guard !busy, !followups.isEmpty else { return }
+        let next = followups.removeFirst()
+        continuation.yield(.queueChanged(followups))
+        startTurn(next)
+    }
+
+    /// LLM session title, opencode-style: fired once after first user message's turn.
+    private func scheduleTitleGeneration(from firstPrompt: String) {
+        titleTask?.cancel()
+        titleTask = Task { [provider, continuation] in
+            let request = ChatRequest(
+                model: self.model,
+                system: "Write a ≤6-word title for this conversation. Output the title only, no quotes, no punctuation at the end.",
+                messages: [.user(firstPrompt)]
+            )
+            var title = ""
+            do {
+                for try await event in provider.stream(request) {
+                    if Task.isCancelled { return }
+                    if case .textDelta(let delta) = event { title += delta }
+                }
+            } catch { return }
+            let cleaned = title
+                .components(separatedBy: .newlines)
+                .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !cleaned.isEmpty else { return }
+            let truncated = cleaned.count > 97 ? String(cleaned.prefix(97)) + "..." : cleaned
+            try? await self.store.updateTitle(truncated, sessionID: self.id)
+            continuation.yield(.titleGenerated(truncated))
         }
     }
 
@@ -242,9 +355,18 @@ public actor AgentSession {
 
     // MARK: - Compaction
 
+    /// opencode usable-limit: contextWindow - min(20_000, maxOutput).
+    private var usableInputLimit: Int {
+        contextWindow - min(20_000, maxOutput)
+    }
+
     private func compactIfNeeded() async {
-        guard contextWindow > 0, lastInputTokens > Int(Double(contextWindow) * 0.9),
-              history.count > 6 else { return }
+        guard contextWindow > 0, lastInputTokens >= usableInputLimit, history.count > 6 else { return }
+        await compactNow()
+    }
+
+    /// Manual (/compact) or automatic compaction. Summarize all but recent tail.
+    public func compactNow() async {
         let summaryRequest = ChatRequest(
             model: model,
             system: "Summarize the conversation so far for continuation. Preserve decisions made, file paths touched, and open tasks. Be terse.",
@@ -253,6 +375,7 @@ public actor AgentSession {
         var summary = ""
         do {
             for try await event in provider.stream(summaryRequest) {
+                if Task.isCancelled { return }
                 if case .textDelta(let delta) = event { summary += delta }
             }
         } catch {

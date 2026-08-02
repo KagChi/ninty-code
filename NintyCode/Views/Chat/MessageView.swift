@@ -12,14 +12,32 @@ struct MessageView: View {
     @State private var copied = false
 
     var body: some View {
-        switch message.role {
-        case .user:
-            userMessage
-        case .assistant:
-            assistantMessage
-        default:
-            EmptyView()
+        if message.isMarker {
+            markerDivider
+        } else {
+            switch message.role {
+            case .user:
+                userMessage
+            case .assistant:
+                assistantMessage
+            default:
+                EmptyView()
+            }
         }
+    }
+
+    /// opencode "Compaction" divider line.
+    private var markerDivider: some View {
+        HStack(spacing: 10) {
+            Rectangle().fill(Theme.borderMuted).frame(height: 1)
+            Text(message.text)
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textFaint)
+                .fixedSize()
+            Rectangle().fill(Theme.borderMuted).frame(height: 1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
     }
 
     // MARK: - User

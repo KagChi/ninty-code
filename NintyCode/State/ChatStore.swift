@@ -20,6 +20,8 @@ struct DisplayMessage: Identifiable, Equatable {
     var text: String = ""
     var toolCalls: [ToolCallDisplay] = []
     var timestamp: Date = Date()
+    /// Timeline marker (e.g. "Compaction") — rendered as a divider, not a bubble.
+    var isMarker = false
 }
 
 // MARK: - ChatStore
@@ -33,10 +35,12 @@ final class ChatStore {
     var todos: [TodoItem] = []
     var compacted = false
     var lastError: String?
+    /// Steer queue: messages sent while streaming, drained by the session.
+    var followups: [String] = []
 
     let sessionID: String
-    let agent: Agent
-    let model: String
+    private(set) var agent: Agent
+    private(set) var model: String
 
     private let session: AgentSession
     private let store: SessionStore
@@ -50,6 +54,7 @@ final class ChatStore {
         provider: any ModelProvider,
         model: String,
         contextWindow: Int,
+        maxOutput: Int = 8_192,
         projectRoot: URL,
         projectInstructions: String?,
         mcpManager: MCPManager?,
@@ -78,6 +83,7 @@ final class ChatStore {
             provider: provider,
             model: model,
             contextWindow: contextWindow,
+            maxOutput: maxOutput,
             registry: registry,
             store: store,
             todoStore: todoStore,
@@ -157,6 +163,15 @@ final class ChatStore {
             todos = items
         case .compacted:
             compacted = true
+            messages.append(DisplayMessage(role: .assistant, text: "Compaction", isMarker: true))
+        case .queueChanged(let queue):
+            followups = queue
+        case .titleGenerated:
+            onChange() // sidebar refresh picks up new title
+        case .agentChanged(let newAgent):
+            agent = newAgent
+        case .modelChanged(let newModel):
+            model = newModel
         case .error(let message):
             lastError = message
             streaming = false
@@ -189,12 +204,18 @@ final class ChatStore {
 
     // MARK: - Actions
 
+    /// opencode steer semantics: sending while streaming queues the message
+    /// (server-side in the session); the UI mirrors the queue as a dock.
     func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !streaming else { return }
+        guard !trimmed.isEmpty else { return }
+        lastError = nil
+        if streaming {
+            Task { await session.send(trimmed) } // session enqueues
+            return
+        }
         messages.append(DisplayMessage(role: .user, text: trimmed))
         streaming = true
-        lastError = nil
         // First message creates the on-disk meta so the session lists in the sidebar.
         if !metaCreated {
             metaCreated = true
@@ -207,10 +228,44 @@ final class ChatStore {
         Task { await session.send(trimmed) }
     }
 
+    /// Set when a queued follow-up is pulled back for editing; composer consumes + clears it.
+    var restoredDraft: String?
+
+    /// Pull a queued follow-up back into the composer for editing.
+    func editFollowup(at index: Int) {
+        Task {
+            if let text = await session.dequeueFollowup(at: index) {
+                restoredDraft = text
+            }
+        }
+    }
+
+    func sendFollowupNow(at index: Int) {
+        messages.append(DisplayMessage(role: .user, text: followups[index]))
+        streaming = true
+        Task { await session.sendFollowupNow(at: index) }
+    }
+
     func abort() {
         Task { await session.abort() }
         streaming = false
         pendingPermission = nil
+    }
+
+    /// Switch agent in place — history kept, next message uses the new agent.
+    func setAgent(_ newAgent: Agent) {
+        Task { await session.setAgent(newAgent) }
+        persistSelection(agentID: newAgent.id, model: model)
+    }
+
+    func setModel(_ newModel: String) {
+        Task { await session.setModel(newModel) }
+        persistSelection(agentID: agent.id, model: newModel)
+    }
+
+    private func persistSelection(agentID: String, model: String) {
+        guard metaCreated else { return }
+        Task { try? await store.updateSelection(agentID: agentID, model: model, sessionID: sessionID) }
     }
 
     /// Cancel stream + turn; call before discarding so nothing retains the session.
