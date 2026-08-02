@@ -4,11 +4,23 @@ public struct ProviderConfig: Codable, Sendable, Equatable {
     public var apiKey: String?
     public var baseURL: String?
     public var headers: [String: String]?
+    /// Display name (custom providers only; presets name themselves).
+    public var name: String?
+    /// Model catalog (custom providers only; presets ship their own).
+    public var models: [ModelInfo]?
 
-    public init(apiKey: String? = nil, baseURL: String? = nil, headers: [String: String]? = nil) {
+    public init(
+        apiKey: String? = nil,
+        baseURL: String? = nil,
+        headers: [String: String]? = nil,
+        name: String? = nil,
+        models: [ModelInfo]? = nil
+    ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.headers = headers
+        self.name = name
+        self.models = models
     }
 }
 
@@ -67,7 +79,9 @@ public struct NintyConfig: Codable, Sendable, Equatable {
                 ProviderConfig(
                     apiKey: over.apiKey ?? base.apiKey,
                     baseURL: over.baseURL ?? base.baseURL,
-                    headers: (base.headers ?? [:]).merging(over.headers ?? [:]) { _, new in new }
+                    headers: (base.headers ?? [:]).merging(over.headers ?? [:]) { _, new in new },
+                    name: over.name ?? base.name,
+                    models: over.models ?? base.models
                 )
             },
             mcp: mcp.merging(override.mcp) { _, new in new },

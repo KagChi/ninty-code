@@ -32,6 +32,7 @@ final class AppState {
     var lastError: String?
 
     private let configLoader = ConfigLoader()
+    private var baseRegistry: ProviderRegistry?
     private var mcpManager: MCPManager?
 
     var selectedAgent: Agent {
@@ -39,7 +40,8 @@ final class AppState {
     }
 
     func bootstrap() {
-        registry = try? ProviderRegistry.load()
+        baseRegistry = try? ProviderRegistry.load()
+        registry = baseRegistry
         if let last = UserDefaults.standard.url(forKey: "lastProject") {
             openProject(last)
         }
@@ -61,6 +63,7 @@ final class AppState {
             resolved = ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: url)
         }
         agents = Agent.all(custom: resolved?.config.agents ?? [:])
+        registry = baseRegistry?.merging(config: resolved?.config ?? NintyConfig())
         if selectedModel.isEmpty {
             selectedModel = resolved?.config.model ?? defaultModelReference()
         }
@@ -68,6 +71,16 @@ final class AppState {
         reloadSessions()
         loadProjectFiles()
         activeChat = nil
+    }
+
+    /// Re-read config + rebuild merged registry (after settings edits). Keeps active chat.
+    func reloadConfig() {
+        guard let projectRoot else { return }
+        resolved = (try? configLoader.load(projectRoot: projectRoot))
+            ?? ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: projectRoot)
+        agents = Agent.all(custom: resolved?.config.agents ?? [:])
+        registry = baseRegistry?.merging(config: resolved?.config ?? NintyConfig())
+        startMCP()
     }
 
     /// Cache project files for @ mention filtering. Detached + bounded walk — must never

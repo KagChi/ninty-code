@@ -131,9 +131,12 @@ struct SidebarView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
         panel.prompt = "Open Project"
-        if panel.runModal() == .OK, let url = panel.url {
-            appState.openProject(url)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in appState.openProject(url) }
         }
     }
 }

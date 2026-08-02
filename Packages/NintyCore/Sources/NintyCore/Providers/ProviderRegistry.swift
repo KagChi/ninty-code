@@ -46,6 +46,34 @@ public struct ProviderRegistry: Sendable {
         presets.first { $0.id == id }
     }
 
+    /// Apply config: overrides for bundled presets + config-defined custom providers
+    /// (any id not in the bundled list, requires baseURL). Enables multiple customs.
+    public func merging(config: NintyConfig) -> ProviderRegistry {
+        var result: [ProviderPreset] = presets.map { preset in
+            guard let override = config.providers[preset.id] else { return preset }
+            var merged = preset
+            if let baseURL = override.baseURL, !baseURL.isEmpty { merged.baseURL = baseURL }
+            if let headers = override.headers {
+                merged.headers = preset.headers.merging(headers) { _, new in new }
+            }
+            if let models = override.models, !models.isEmpty { merged.models = models }
+            return merged
+        }
+        for (id, providerConfig) in config.providers.sorted(by: { $0.key < $1.key })
+        where !presets.contains(where: { $0.id == id }) {
+            guard let baseURL = providerConfig.baseURL, !baseURL.isEmpty else { continue }
+            result.append(ProviderPreset(
+                id: id,
+                name: providerConfig.name ?? id.capitalized,
+                baseURL: baseURL,
+                keyEnv: nil,
+                headers: providerConfig.headers ?? [:],
+                models: providerConfig.models ?? []
+            ))
+        }
+        return ProviderRegistry(presets: result)
+    }
+
     /// Build a provider instance. Key resolution order: explicit key → env var → nil.
     public func makeProvider(
         id: String,
