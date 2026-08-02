@@ -15,6 +15,12 @@ public enum SessionEvent: Sendable {
     case modelChanged(String)
     /// File revert/redo performed; count = current redo depth (0 = not reverted).
     case revertStateChanged(restoredFiles: [String], redoDepth: Int)
+    /// HTTP retry in progress (opencode SessionRetry indicator).
+    case retrying(attempt: Int, delay: Int)
+    /// Provider call resumed after retry.
+    case retryResolved
+    /// Files mutated by edit/write during this turn (for "Changed N files" UI).
+    case changedFiles([String])
     case error(String)
     case done(input: Int, output: Int)
 }
@@ -54,6 +60,8 @@ public actor AgentSession {
     /// Monotonic turn id: a cancelled turn only clears `busy` if it is still current.
     private var turnEpoch = 0
     private var titleTask: Task<Void, Never>?
+    /// Files mutated by edit/write in the current turn ("Changed N files" UI).
+    private var turnChangedFiles: Set<String> = []
 
     public init(
         id: String = UUID().uuidString,
@@ -215,6 +223,7 @@ public actor AgentSession {
         history.append(userMessage)
         try? await store.append(userMessage, sessionID: id)
         await snapshots.beginTurn()
+        turnChangedFiles = []
 
         // Only the current epoch clears busy — a cancelled superseded turn must not.
         defer { if epoch == turnEpoch { busy = false } }
@@ -234,13 +243,18 @@ public actor AgentSession {
             var completedCalls: [String] = []
             var finishReason: FinishReason = .stop
             var usage: (input: Int, output: Int)?
+            var wasRetrying = false
 
             let stream = provider.stream(request)
             do {
                 for try await event in stream {
                     if Task.isCancelled { return }
                     switch event {
+                    case .retrying(let attempt, let delay):
+                        wasRetrying = true
+                        continuation.yield(.retrying(attempt: attempt, delay: delay))
                     case .textDelta(let delta):
+                        if wasRetrying { wasRetrying = false; continuation.yield(.retryResolved) }
                         assistantText += delta
                         continuation.yield(.textDelta(delta))
                     case .toolCallStart(let id, let name):
@@ -289,6 +303,9 @@ public actor AgentSession {
 
             guard finishReason == .toolCalls, !completedCalls.isEmpty else {
                 busy = false
+                if !turnChangedFiles.isEmpty {
+                    continuation.yield(.changedFiles(Array(turnChangedFiles).sorted()))
+                }
                 continuation.yield(.done(input: usage?.input ?? 0, output: usage?.output ?? 0))
                 drainQueue()
                 return
@@ -362,14 +379,17 @@ public actor AgentSession {
         tool: any AgentTool, arguments: JSONValue, callID: String
     ) async -> ToolResult {
         let preview = Self.preview(for: tool.name, arguments: arguments)
+        // Snapshot + changed-file tracking before any edit/write mutation.
+        if tool.name == "edit" || tool.name == "write",
+           let path = arguments["path"]?.stringValue {
+            let resolved = ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path
+            await snapshots.recordOriginal(path: resolved)
+            turnChangedFiles.insert(path)
+        }
         // Plan agent: write/edit allowed for plans files only (opencode parity).
         let effectiveAction = agent.permissions.action(for: tool.name, arguments: arguments, isPlan: agent.id == "plan")
         if effectiveAction == .allow {
             do {
-                if tool.name == "edit" || tool.name == "write",
-                   let path = arguments["path"]?.stringValue {
-                    await snapshots.recordOriginal(path: ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path)
-                }
                 return try await tool.execute(arguments, ctx: ToolContext(projectRoot: projectRoot, sessionID: id))
             } catch {
                 return .error("Tool error: \(error.localizedDescription)")
@@ -383,11 +403,6 @@ public actor AgentSession {
             )
         } catch {
             return .error("Permission denied: \(tool.name)")
-        }
-        // Snapshot before mutation (opencode revert support).
-        if tool.name == "edit" || tool.name == "write",
-           let path = arguments["path"]?.stringValue {
-            await snapshots.recordOriginal(path: ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path)
         }
         do {
             return try await tool.execute(arguments, ctx: ToolContext(projectRoot: projectRoot, sessionID: id))

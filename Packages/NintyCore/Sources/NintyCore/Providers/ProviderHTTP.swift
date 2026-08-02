@@ -14,7 +14,8 @@ public struct ProviderHTTP: Sendable {
     public func postStreaming(
         url: URL,
         headers: [String: String],
-        body: some Encodable & Sendable
+        body: some Encodable & Sendable,
+        onRetry: (@Sendable (Int, Int) -> Void)? = nil
     ) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {
         var attempt = 0
         while true {
@@ -23,10 +24,14 @@ public struct ProviderHTTP: Sendable {
                 return try await perform(url: url, headers: headers, body: body)
             } catch let error as ProviderError {
                 if attempt >= Self.maxAttempts || !error.isRetryable { throw error }
-                try await Task.sleep(nanoseconds: Self.backoffSeconds[min(attempt - 1, 2)] * 1_000_000_000)
+                let delay = Int(Self.backoffSeconds[min(attempt - 1, 2)])
+                onRetry?(attempt, delay)
+                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
             } catch {
                 if attempt >= Self.maxAttempts { throw ProviderError.network(error.localizedDescription) }
-                try await Task.sleep(nanoseconds: Self.backoffSeconds[min(attempt - 1, 2)] * 1_000_000_000)
+                let delay = Int(Self.backoffSeconds[min(attempt - 1, 2)])
+                onRetry?(attempt, delay)
+                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
             }
         }
     }

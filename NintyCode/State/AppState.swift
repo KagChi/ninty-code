@@ -33,6 +33,10 @@ final class AppState {
 
     // Dialogs
     var showModelDialog = false
+    var showCommandPalette = false
+
+    /// Recent model references, newest first, max 5 (opencode recent-ring).
+    var recentModels: [String] = []
 
     private let configLoader = ConfigLoader()
     private var baseRegistry: ProviderRegistry?
@@ -45,6 +49,7 @@ final class AppState {
     func bootstrap() {
         baseRegistry = try? ProviderRegistry.load()
         registry = baseRegistry
+        recentModels = UserDefaults.standard.stringArray(forKey: "recentModels") ?? []
         if let last = UserDefaults.standard.url(forKey: "lastProject") {
             openProject(last)
         }
@@ -154,9 +159,13 @@ final class AppState {
         activeChat?.setAgent(agent)
     }
 
-    /// Switch model on the live chat — in place.
+    /// Switch model on the live chat — in place. Explicit selects push to recents.
     func selectModel(_ reference: String) {
         selectedModel = reference
+        recentModels.removeAll { $0 == reference }
+        recentModels.insert(reference, at: 0)
+        if recentModels.count > 5 { recentModels.removeLast(recentModels.count - 5) }
+        UserDefaults.standard.set(recentModels, forKey: "recentModels")
         guard let (_, modelID) = ProviderRegistry.split(reference) else { return }
         activeChat?.setModel(modelID)
     }

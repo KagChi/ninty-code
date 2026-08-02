@@ -63,7 +63,14 @@ struct ChatView: View {
                             .id(message.id)
                     }
                     if store.streaming, store.messages.last?.role != .assistant || store.messages.last?.text.isEmpty == true && store.messages.last?.toolCalls.isEmpty == true {
-                        ThinkingRow()
+                        if let retry = store.retry {
+                            RetryRow(attempt: retry.attempt, delay: retry.delay)
+                        } else {
+                            ThinkingRow()
+                        }
+                    }
+                    if !store.streaming, !store.changedFiles.isEmpty {
+                        ChangedFilesRow(files: store.changedFiles)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -358,6 +365,69 @@ struct ForkDialog: View {
             appState.openChat(newID)
             appState.activeChat?.restoredDraft = prompt
         }
+    }
+}
+
+/// opencode SessionRetry indicator.
+struct RetryRow: View {
+    let attempt: Int
+    let delay: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Retrying (attempt \(attempt + 1), next in \(delay)s)…")
+                .font(Theme.small)
+                .foregroundStyle(Theme.warning)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// opencode turn-end "Changed N files" accordion (max 10 + show all).
+struct ChangedFilesRow: View {
+    let files: [String]
+    @State private var expanded = false
+    @State private var showAll = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.badge.gearshape")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textFaint)
+                    Text("Changed \(files.count) file\(files.count == 1 ? "" : "s")")
+                        .font(Theme.smallMedium)
+                        .foregroundStyle(Theme.textMuted)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                let shown = showAll ? files : Array(files.prefix(10))
+                ForEach(shown, id: \.self) { file in
+                    Text(file)
+                        .font(Theme.mono)
+                        .foregroundStyle(Theme.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if files.count > 10 && !showAll {
+                    Button("Show all \(files.count)") { showAll = true }
+                        .buttonStyle(DockButtonStyle(variant: .ghost))
+                        .controlSize(.small)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -69,7 +69,12 @@ public struct OpenAICompatibleProvider: ModelProvider, Sendable {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let (bytes, _) = try await http.postStreaming(url: url, headers: headers, body: body)
+                    let (bytes, _) = try await http.postStreaming(
+                        url: url, headers: headers, body: body,
+                        onRetry: { attempt, delay in
+                            continuation.yield(.retrying(attempt: attempt, delay: delay))
+                        }
+                    )
                     var sse = SSEParser()
                     var chunks = ChatCompletionStreamParser()
                     var lineBuffer = ""

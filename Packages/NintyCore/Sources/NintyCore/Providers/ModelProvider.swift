@@ -53,6 +53,8 @@ public enum StreamEvent: Sendable, Equatable {
     case toolCallEnd(id: String)
     case usage(input: Int, output: Int)
     case finish(reason: FinishReason)
+    /// HTTP retry in progress (attempt number, seconds until next try).
+    case retrying(attempt: Int, delay: Int)
 }
 
 public enum ProviderError: Error, Sendable, Equatable {

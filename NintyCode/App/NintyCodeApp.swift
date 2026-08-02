@@ -39,6 +39,43 @@ struct ContentView: View {
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         .toolbarBackground(.hidden, for: .windowToolbar)
+        .sheet(isPresented: Binding(
+            get: { appState.showModelDialog },
+            set: { appState.showModelDialog = $0 }
+        )) {
+            ModelDialog().environment(appState)
+        }
+        .sheet(isPresented: Binding(
+            get: { appState.showCommandPalette },
+            set: { appState.showCommandPalette = $0 }
+        )) {
+            CommandPalette().environment(appState)
+        }
+        .background(GlobalKeybinds())
+    }
+}
+
+/// App-wide keybinds (opencode desktop map).
+struct GlobalKeybinds: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        ZStack {
+            Button("") { appState.cycleAgent() }
+                .keyboardShortcut(".", modifiers: .command)
+            Button("") { appState.cycleAgent(reverse: true) }
+                .keyboardShortcut(".", modifiers: [.command, .shift])
+            Button("") { appState.showModelDialog = true }
+                .keyboardShortcut("'", modifiers: .command)
+            Button("") { appState.showCommandPalette = true }
+                .keyboardShortcut("k", modifiers: .command)
+            Button("") { appState.showCommandPalette = true }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+            Button("") { appState.newChat() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+        }
+        .frame(width: 0, height: 0)
+        .hidden()
     }
 }
 

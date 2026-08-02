@@ -41,6 +41,10 @@ final class ChatStore {
     var followups: [String] = []
     /// Messages hidden by /undo (not deleted — opencode revert semantics).
     var revertedMessages: [DisplayMessage] = []
+    /// HTTP retry in progress: (attempt, delay seconds). Nil = not retrying.
+    var retry: (attempt: Int, delay: Int)?
+    /// Files changed during the last completed turn ("Changed N files" accordion).
+    var changedFiles: [String] = []
 
     let sessionID: String
     let projectRoot: URL
@@ -176,6 +180,12 @@ final class ChatStore {
             followups = queue
         case .revertStateChanged:
             break // revertedMessages array is the UI source of truth
+        case .retrying(let attempt, let delay):
+            retry = (attempt, delay)
+        case .retryResolved:
+            retry = nil
+        case .changedFiles(let files):
+            changedFiles = files
         case .titleGenerated:
             onChange() // sidebar refresh picks up new title
         case .agentChanged(let newAgent):
@@ -185,9 +195,11 @@ final class ChatStore {
         case .error(let message):
             lastError = message
             streaming = false
+            retry = nil
         case .done:
             streaming = false
             pendingPermission = nil
+            retry = nil
             onChange()
         }
     }

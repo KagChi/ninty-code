@@ -72,23 +72,48 @@ struct SidebarView: View {
 
     // MARK: - Sessions
 
+    /// opencode grouping: Today / Yesterday / Older (Older → "Recent sessions" if alone).
+    private var groupedSessions: [(label: String, items: [SessionMeta])] {
+        let calendar = Calendar.current
+        let today = appState.sessions.filter { calendar.isDateInToday($0.updated) }
+        let yesterday = appState.sessions.filter { calendar.isDateInYesterday($0.updated) }
+        let older = appState.sessions.filter {
+            !calendar.isDateInToday($0.updated) && !calendar.isDateInYesterday($0.updated)
+        }
+        var groups: [(String, [SessionMeta])] = []
+        if !today.isEmpty { groups.append(("Today", today)) }
+        if !yesterday.isEmpty { groups.append(("Yesterday", yesterday)) }
+        if !older.isEmpty {
+            groups.append((groups.isEmpty ? "Recent sessions" : "Older", older))
+        }
+        return groups
+    }
+
     private var sessionsList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(appState.sessions) { session in
-                    SessionRow(
-                        session: session,
-                        isActive: appState.activeChat?.sessionID == session.id,
-                        hasPermissionPending: appState.activeChat?.sessionID == session.id
-                            && appState.activeChat?.pendingPermission != nil,
-                        isWorking: appState.activeChat?.sessionID == session.id
-                            && appState.activeChat?.streaming == true
-                    )
-                    .onTapGesture { appState.openChat(session.id) }
-                    .contextMenu {
-                        Button("Open") { appState.openChat(session.id) }
-                        Divider()
-                        Button("Delete", role: .destructive) { appState.deleteSession(session.id) }
+                ForEach(groupedSessions, id: \.label) { group in
+                    Text(group.label.uppercased())
+                        .font(Theme.tiny)
+                        .foregroundStyle(Theme.textFaint)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 10)
+                        .padding(.bottom, 2)
+                    ForEach(group.items) { session in
+                        SessionRow(
+                            session: session,
+                            isActive: appState.activeChat?.sessionID == session.id,
+                            hasPermissionPending: appState.activeChat?.sessionID == session.id
+                                && appState.activeChat?.pendingPermission != nil,
+                            isWorking: appState.activeChat?.sessionID == session.id
+                                && appState.activeChat?.streaming == true
+                        )
+                        .onTapGesture { appState.openChat(session.id) }
+                        .contextMenu {
+                            Button("Open") { appState.openChat(session.id) }
+                            Divider()
+                            Button("Delete", role: .destructive) { appState.deleteSession(session.id) }
+                        }
                     }
                 }
             }
