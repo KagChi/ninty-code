@@ -3,6 +3,7 @@ import Foundation
 public enum SessionEvent: Sendable {
     case textDelta(String)
     case toolCallStarted(id: String, name: String)
+    case toolCallUpdated(id: String, arguments: JSONValue)
     case toolResult(id: String, name: String, output: String, isError: Bool)
     case permissionAsked(PermissionRequest)
     case permissionResolved(id: String, reply: PermissionReply)
@@ -188,6 +189,7 @@ public actor AgentSession {
                     continue
                 }
                 let arguments = (try? JSONDecoder().decode(JSONValue.self, from: Data(call.arguments.utf8))) ?? .object([:])
+                continuation.yield(.toolCallUpdated(id: callID, arguments: arguments))
                 let result = await executeWithPermission(
                     tool: tool, arguments: arguments, callID: callID
                 )

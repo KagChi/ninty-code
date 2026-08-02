@@ -1,26 +1,30 @@
 import SwiftUI
 import NintyCore
 
+/// opencode v2 session view: centered timeline (max 800px), docks above composer, jump-to-latest.
 struct ChatView: View {
     let store: ChatStore
     @Environment(AppState.self) private var appState
     @State private var userScrolledUp = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            messageList
-            if !store.todos.isEmpty {
-                TodoBar(todos: store.todos)
-            }
-            if let request = store.pendingPermission {
-                PermissionPromptView(request: request) { reply in
-                    store.replyPermission(reply)
+        ZStack(alignment: .bottom) {
+            messageTimeline
+            VStack(spacing: 6) {
+                if let request = store.pendingPermission {
+                    PermissionDock(request: request) { reply in
+                        store.replyPermission(reply)
+                    }
                 }
+                if !store.todos.isEmpty {
+                    TodoDock(todos: store.todos)
+                }
+                ComposerView(store: store)
             }
-            ComposerView(store: store)
-            statusBar
+            .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bgBase)
         .alert("Error", isPresented: .constant(store.lastError != nil)) {
             Button("OK") { store.lastError = nil }
         } message: {
@@ -28,22 +32,23 @@ struct ChatView: View {
         }
     }
 
-    private var messageList: some View {
+    private var messageTimeline: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: 24) {
                     ForEach(store.messages) { message in
-                        MessageView(message: message)
+                        MessageView(message: message, agentID: store.agent.id, model: store.model)
                             .id(message.id)
                     }
-                    if store.streaming {
-                        StreamingIndicator()
-                            .id("streaming-indicator")
+                    if store.streaming, store.messages.last?.role != .assistant || store.messages.last?.text.isEmpty == true && store.messages.last?.toolCalls.isEmpty == true {
+                        ThinkingRow()
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 180) // room for composer + docks
+                .frame(maxWidth: 800)
+                .frame(maxWidth: .infinity)
                 Color.clear
                     .frame(height: 1)
                     .id("bottom")
@@ -58,101 +63,117 @@ struct ChatView: View {
                 userScrolledUp = false
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
-        }
-    }
-
-    /// Opencode-style bottom status bar: path left, model + agent right.
-    private var statusBar: some View {
-        HStack(spacing: 8) {
-            if let root = appState.projectRoot {
-                Text(root.path)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer()
-            if store.compacted {
-                Text("compacted")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-            }
-            Text(shortModel)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Text(store.agent.id.uppercased())
-                .font(.system(.caption2, design: .monospaced, weight: .bold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 6)
-        .background(.white.opacity(0.03))
-    }
-
-    private var shortModel: String {
-        ProviderRegistry.split(store.model)?.model ?? store.model
-    }
-}
-
-struct StreamingIndicator: View {
-    @State private var phase = 0
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(.secondary)
-                    .frame(width: 5, height: 5)
-                    .opacity(phase == index ? 1 : 0.3)
-            }
-        }
-        .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
-                phase = (phase + 1) % 3
-            }
-        }
-    }
-}
-
-struct TodoBar: View {
-    let todos: [TodoItem]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Array(todos.enumerated()), id: \.offset) { _, todo in
-                    HStack(spacing: 4) {
-                        Image(systemName: icon(for: todo.status))
-                            .foregroundStyle(color(for: todo.status))
-                        Text(todo.content)
-                            .lineLimit(1)
+            .overlay(alignment: .bottom) {
+                if userScrolledUp {
+                    Button {
+                        withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                        userScrolledUp = false
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Theme.textBase)
+                            .frame(width: 32, height: 28)
+                            .background(Theme.layer01.opacity(0.92), in: .rect(cornerRadius: Theme.radiusMedium))
+                            .raisedElevation(cornerRadius: Theme.radiusMedium)
                     }
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .glassEffect(.regular, in: .capsule)
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 190)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 8)
+            .animation(.easeInOut(duration: 0.2), value: userScrolledUp)
         }
     }
+}
 
-    private func icon(for status: String) -> String {
-        switch status {
-        case "completed": return "checkmark.circle.fill"
-        case "in_progress": return "circle.lefthalf.filled"
-        case "cancelled": return "xmark.circle"
-        default: return "circle"
-        }
+/// opencode v2 todo dock: "done/total" counter + current task + chevron, expandable.
+struct TodoDock: View {
+    let todos: [TodoItem]
+    @State private var expanded = false
+
+    private var doneCount: Int {
+        todos.filter { $0.status == "completed" }.count
     }
 
-    private func color(for status: String) -> Color {
-        switch status {
-        case "completed": return .green
-        case "in_progress": return .blue
-        case "cancelled": return .red
-        default: return .secondary
+    private var currentTask: String {
+        todos.first { $0.status == "in_progress" }?.content ?? ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text("\(doneCount)/\(todos.count)")
+                        .font(Theme.smallMedium)
+                        .foregroundStyle(Theme.textBase)
+                    Text(currentTask)
+                        .font(Theme.small)
+                        .foregroundStyle(Theme.textFaint)
+                        .lineLimit(1)
+                    Spacer()
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(expanded ? 0 : 180))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(todos.enumerated()), id: \.offset) { _, todo in
+                        HStack(spacing: 8) {
+                            statusIcon(todo.status)
+                            Text(todo.content)
+                                .font(Theme.small)
+                                .foregroundStyle(todo.status == "completed" ? Theme.textFaint : Theme.textBase)
+                                .strikethrough(todo.status == "completed")
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
         }
+        .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusXL).stroke(Theme.borderBase, lineWidth: 0.5))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: 800)
+    }
+
+    @ViewBuilder
+    private func statusIcon(_ status: String) -> some View {
+        switch status {
+        case "completed":
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Theme.success)
+        case "in_progress":
+            PulsingDot(color: Theme.textAccent)
+        case "cancelled":
+            Image(systemName: "xmark.circle")
+                .foregroundStyle(Theme.danger)
+        default:
+            Image(systemName: "circle")
+                .foregroundStyle(Theme.textFaint)
+        }
+    }
+}
+
+struct PulsingDot: View {
+    let color: Color
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 6, height: 6)
+            .scaleEffect(pulsing ? 1.4 : 1)
+            .opacity(pulsing ? 0.5 : 1)
+            .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
+            .onAppear { pulsing = true }
     }
 }

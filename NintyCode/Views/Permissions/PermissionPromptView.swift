@@ -1,33 +1,48 @@
 import SwiftUI
 import NintyCore
 
-struct PermissionPromptView: View {
+/// opencode v2 permission dock: raised shell + footer tray with Deny / Allow always / Allow once.
+struct PermissionDock: View {
     let request: PermissionRequest
     let onReply: (PermissionReply) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 4) {
+            // Shell body
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Theme.warning)
+                        .font(.system(size: 13))
+                    Text("Permission required")
+                        .font(Theme.sansMedium)
+                        .foregroundStyle(Theme.textBase)
+                }
+                preview
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
+            .raisedElevation(cornerRadius: Theme.radiusXL)
+
+            // Footer tray
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.shield.fill")
-                    .foregroundStyle(.orange)
-                Text("Allow \(request.tool)?")
-                    .font(.headline)
-            }
-            preview
-            HStack(spacing: 10) {
-                Button("Allow Once") { onReply(.once) }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                Button("Always Allow") { onReply(.always) }
                 Spacer()
-                Button("Deny", role: .destructive) { onReply(.reject) }
+                Button("Deny") { onReply(.reject) }
+                    .buttonStyle(DockButtonStyle(variant: .ghost))
                     .keyboardShortcut(.cancelAction)
+                Button("Allow always") { onReply(.always) }
+                    .buttonStyle(DockButtonStyle(variant: .secondary))
+                Button("Allow once") { onReply(.once) }
+                    .buttonStyle(DockButtonStyle(variant: .primary))
+                    .keyboardShortcut(.defaultAction)
             }
+            .padding(8)
+            .background(Theme.bgBase, in: .rect(cornerRadius: Theme.radiusXL))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusXL).stroke(Theme.borderMuted, lineWidth: 1))
         }
-        .padding(14)
-        .glassEffect(.regular.tint(.orange.opacity(0.15)), in: .rect(cornerRadius: 14))
-        .padding(.horizontal, 20)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: 800)
     }
 
     @ViewBuilder
@@ -41,12 +56,47 @@ struct PermissionPromptView: View {
                 added: newString.components(separatedBy: .newlines)
             ))
         } else {
-            Text(request.preview)
-                .font(.system(.callout, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.black.opacity(0.25), in: .rect(cornerRadius: 8))
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(request.preview)
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textMuted)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+            .background(Theme.bgDeep, in: .rect(cornerRadius: Theme.radiusSmall))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.borderBase, lineWidth: 0.5))
+        }
+    }
+}
+
+struct DockButtonStyle: ButtonStyle {
+    enum Variant { case ghost, secondary, primary }
+    let variant: Variant
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Theme.smallMedium)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .foregroundStyle(foreground)
+            .background(background, in: .rect(cornerRadius: Theme.radiusSmall))
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
+
+    private var foreground: Color {
+        switch variant {
+        case .ghost: return Theme.textMuted
+        case .secondary: return Theme.textBase
+        case .primary: return .white
+        }
+    }
+
+    private var background: Color {
+        switch variant {
+        case .ghost: return .clear
+        case .secondary: return Theme.layer03
+        case .primary: return Theme.accent
         }
     }
 }

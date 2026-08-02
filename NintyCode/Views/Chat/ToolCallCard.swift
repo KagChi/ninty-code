@@ -1,69 +1,98 @@
 import SwiftUI
 import NintyCore
 
-/// Opencode-style compact tool row: status icon + name + summary, click to expand.
+/// opencode v2 tool row: 32px ghost collapsible.
+/// [title 14 medium (shimmer while running)] [subtitle 14 muted, truncated] [args] … chevron on hover.
 struct ToolCallRow: View {
     let call: ToolCallDisplay
     @State private var expanded = false
+    @State private var hovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.12)) { expanded.toggle() }
             } label: {
-                HStack(spacing: 8) {
-                    statusIcon
-                    Text(call.name.isEmpty ? "tool" : call.name)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.primary)
-                    Text(summary)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    titleView
+                    Text(subtitle)
+                        .font(Theme.sans)
+                        .foregroundStyle(Theme.textMuted)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
-                    if call.output != nil || call.name == "edit" || call.name == "bash" {
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                    if let changes = diffChanges {
+                        DiffChangesText(adds: changes.adds, deletes: changes.deletes)
                     }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .opacity(hovered || expanded ? 1 : 0)
                 }
-                .padding(.vertical, 3)
+                .frame(height: 32)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { hovered = $0 }
             if expanded {
                 detail
-                    .padding(.leading, 22)
-                    .padding(.top, 4)
-                    .padding(.bottom, 6)
+                    .padding(.bottom, 8)
             }
         }
     }
 
-    private var statusIcon: some View {
-        Group {
-            switch call.status {
-            case .running:
-                ProgressView().controlSize(.mini)
-            case .done:
-                Image(systemName: "checkmark").foregroundStyle(.green)
-            case .failed:
-                Image(systemName: "xmark").foregroundStyle(.red)
-            }
+    @ViewBuilder
+    private var titleView: some View {
+        let title = toolTitle
+        if call.status == .running {
+            ShimmerText(text: title, font: Theme.sansMedium, color: Theme.textBase)
+        } else {
+            Text(title)
+                .font(Theme.sansMedium)
+                .foregroundStyle(call.status == .failed ? Theme.danger : Theme.textBase)
         }
-        .font(.system(.caption, weight: .bold))
-        .frame(width: 14, height: 14)
     }
 
-    private var summary: String {
+    /// opencode getToolInfo-style titles.
+    private var toolTitle: String {
+        switch call.name {
+        case "read": return "Read"
+        case "list": return "List"
+        case "glob": return "Glob"
+        case "grep": return "Grep"
+        case "bash": return "Shell"
+        case "edit": return "Edit"
+        case "write": return "Write"
+        case "todowrite": return "Todos"
+        default:
+            if call.name.contains(":") { return "Called \(call.name)" }
+            return call.name.prefix(1).uppercased() + call.name.dropFirst()
+        }
+    }
+
+    private var subtitle: String {
         let args = call.arguments
         switch call.name {
-        case "bash": return args["command"]?.stringValue ?? ""
-        case "read", "write", "edit": return args["path"]?.stringValue ?? ""
-        case "grep", "glob": return args["pattern"]?.stringValue ?? ""
-        default: return ""
+        case "read", "edit", "write":
+            return args["path"]?.stringValue.map { ($0 as NSString).lastPathComponent } ?? ""
+        case "list":
+            return args["path"]?.stringValue ?? "."
+        case "glob", "grep":
+            return "pattern=\(args["pattern"]?.stringValue ?? "")"
+        case "bash":
+            return args["command"]?.stringValue ?? ""
+        default:
+            return ""
         }
+    }
+
+    private var diffChanges: (adds: Int, deletes: Int)? {
+        guard call.name == "edit",
+              let oldString = call.arguments["oldString"]?.stringValue,
+              let newString = call.arguments["newString"]?.stringValue else { return nil }
+        return (newString.components(separatedBy: .newlines).count,
+                oldString.components(separatedBy: .newlines).count)
     }
 
     @ViewBuilder
@@ -72,10 +101,9 @@ struct ToolCallRow: View {
             if call.name == "edit", let diff = editDiff {
                 DiffView(diff: diff)
             } else if call.name == "bash", let command = call.arguments["command"]?.stringValue {
-                DetailBlock(title: "command", text: command)
-            }
-            if let output = call.output, !output.isEmpty {
-                DetailBlock(title: call.isError ? "error" : "output", text: output)
+                BashOutputBlock(command: command, output: call.output)
+            } else if let output = call.output, !output.isEmpty {
+                OutputBlock(text: output, isError: call.isError)
             }
         }
     }
@@ -91,29 +119,57 @@ struct ToolCallRow: View {
     }
 }
 
-struct DetailBlock: View {
-    let title: String
-    let text: String
+/// opencode DiffChanges: "+N -M" colored counts.
+struct DiffChangesText: View {
+    let adds: Int
+    let deletes: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                Text(text)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 240)
+        HStack(spacing: 4) {
+            Text("+\(adds)").foregroundStyle(Theme.diffAdd)
+            Text("-\(deletes)").foregroundStyle(Theme.diffDelete)
         }
-        .background(.black.opacity(0.35), in: .rect(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.08), lineWidth: 1))
+        .font(Theme.mono)
+    }
+}
+
+/// opencode bash-output: bordered box, mono, "$ cmd\n\noutput", max-height 240.
+struct BashOutputBlock: View {
+    let command: String
+    let output: String?
+
+    var body: some View {
+        ScrollView([.vertical], showsIndicators: false) {
+            Text(verbatim: "$ \(command)\n\n\(output ?? "")")
+                .font(Theme.mono)
+                .foregroundStyle(Theme.textMuted)
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 240)
+        .background(Theme.bgDeep, in: .rect(cornerRadius: Theme.radiusSmall))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.borderBase, lineWidth: 0.5))
+    }
+}
+
+struct OutputBlock: View {
+    let text: String
+    var isError: Bool = false
+
+    var body: some View {
+        ScrollView([.vertical], showsIndicators: false) {
+            Text(text)
+                .font(Theme.mono)
+                .foregroundStyle(isError ? Theme.danger : Theme.textMuted)
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 240)
+        .background(isError ? Theme.dangerBg.opacity(0.4) : Theme.bgDeep, in: .rect(cornerRadius: Theme.radiusSmall))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(
+            isError ? Theme.danger.opacity(0.4) : Theme.borderBase, lineWidth: 0.5))
     }
 }
 
@@ -122,32 +178,36 @@ struct DiffView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(diff.path)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+            HStack {
+                Text(diff.path)
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textFaint)
+                Spacer()
+                DiffChangesText(adds: diff.added.count, deletes: diff.removed.count)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(diff.removed.enumerated()), id: \.offset) { _, line in
                         Text("- " + line)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Theme.diffDelete)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.red.opacity(0.12))
+                            .background(Theme.diffDeleteBg)
                     }
                     ForEach(Array(diff.added.enumerated()), id: \.offset) { _, line in
                         Text("+ " + line)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Theme.diffAdd)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.green.opacity(0.12))
+                            .background(Theme.diffAddBg)
                     }
                 }
-                .font(.system(.caption, design: .monospaced))
+                .font(Theme.mono)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
             }
         }
-        .background(.black.opacity(0.35), in: .rect(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.08), lineWidth: 1))
+        .background(Theme.bgDeep, in: .rect(cornerRadius: Theme.radiusSmall))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.borderBase, lineWidth: 0.5))
     }
 }

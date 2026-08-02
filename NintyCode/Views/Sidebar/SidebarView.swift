@@ -2,108 +2,119 @@ import SwiftUI
 import AppKit
 import NintyCore
 
-/// Opencode-style sidebar: wordmark + project, sessions list, model footer.
+/// opencode v2 sidebar: project header, "+ New session" CTA, session rows with status dots.
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().opacity(0.3)
+            newSessionButton
             sessionsList
-            Divider().opacity(0.3)
+            Spacer(minLength: 0)
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.bgBase)
         .onAppear { appState.pickProjectHandler = pickProject }
     }
 
+    // MARK: - Header: project name + path
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("ninty-code")
-                .font(.system(.callout, design: .monospaced, weight: .bold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
             if let root = appState.projectRoot {
-                Button {
-                    pickProject()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "folder.fill")
-                            .foregroundStyle(.secondary)
-                        Text(root.lastPathComponent)
-                            .fontWeight(.medium)
-                            .lineLimit(1)
-                    }
-                }
-                .buttonStyle(.plain)
-                .help(root.path)
+                Text(root.lastPathComponent)
+                    .font(Theme.sansMedium)
+                    .foregroundStyle(Theme.textBase)
+                Text(root.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             } else {
-                Button {
-                    pickProject()
-                } label: {
-                    Label("Open Project…", systemImage: "folder.badge.plus")
-                }
-                .buttonStyle(.borderedProminent)
+                Text("ninty-code")
+                    .font(Theme.sansMedium)
+                    .foregroundStyle(Theme.textBase)
             }
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+        .contentShape(Rectangle())
+        .onTapGesture { pickProject() }
     }
+
+    // MARK: - CTA
+
+    private var newSessionButton: some View {
+        Button {
+            if appState.projectRoot == nil {
+                pickProject()
+            } else {
+                appState.newChat()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(appState.projectRoot == nil ? "Open project" : "New session")
+                    .font(Theme.sansMedium)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Theme.accent, in: .rect(cornerRadius: Theme.radiusMedium))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    // MARK: - Sessions
 
     private var sessionsList: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Sessions")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                Spacer()
-                Button {
-                    appState.newChat()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
-                .disabled(appState.projectRoot == nil)
-                .help("New session")
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(appState.sessions) { session in
-                        SessionRow(
-                            session: session,
-                            isActive: appState.activeChat?.sessionID == session.id
-                        )
-                        .onTapGesture { appState.openChat(session.id) }
-                        .contextMenu {
-                            Button("Open") { appState.openChat(session.id) }
-                            Divider()
-                            Button("Delete", role: .destructive) { appState.deleteSession(session.id) }
-                        }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                ForEach(appState.sessions) { session in
+                    SessionRow(
+                        session: session,
+                        isActive: appState.activeChat?.sessionID == session.id,
+                        hasPermissionPending: appState.activeChat?.sessionID == session.id
+                            && appState.activeChat?.pendingPermission != nil,
+                        isWorking: appState.activeChat?.sessionID == session.id
+                            && appState.activeChat?.streaming == true
+                    )
+                    .onTapGesture { appState.openChat(session.id) }
+                    .contextMenu {
+                        Button("Open") { appState.openChat(session.id) }
+                        Divider()
+                        Button("Delete", role: .destructive) { appState.deleteSession(session.id) }
                     }
                 }
-                .padding(.horizontal, 8)
             }
+            .padding(.horizontal, 8)
         }
-        .frame(maxHeight: .infinity, alignment: .topLeading)
     }
+
+    // MARK: - Footer: model + agent
 
     private var footer: some View {
         HStack(spacing: 6) {
             Image(systemName: "cpu")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.textFaint)
             Text(modelName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textMuted)
                 .lineLimit(1)
             Spacer()
-            Text(appState.selectedAgentID.uppercased())
-                .font(.system(.caption2, design: .monospaced, weight: .bold))
-                .foregroundStyle(.secondary)
+            Circle()
+                .fill(Theme.agentColor(appState.selectedAgentID))
+                .frame(width: 6, height: 6)
+            Text(appState.selectedAgentID)
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textMuted)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -128,28 +139,53 @@ struct SidebarView: View {
     }
 }
 
+/// opencode session row: 6px status dot + title 14 regular, hover/active bg.
 struct SessionRow: View {
     let session: SessionMeta
     var isActive: Bool = false
+    var hasPermissionPending: Bool = false
+    var isWorking: Bool = false
+    @State private var hovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 8) {
+            statusIndicator
             Text(session.title)
+                .font(Theme.sans)
+                .foregroundStyle(Theme.textBase)
                 .lineLimit(1)
-                .font(.callout)
-            HStack(spacing: 6) {
-                Text(session.agentID.uppercased())
-                    .font(.system(.caption2, design: .monospaced, weight: .bold))
-                    .foregroundStyle(.secondary)
-                Text(session.updated, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+            Spacer()
+            Text(session.updated, style: .relative)
+                .font(Theme.tiny)
+                .foregroundStyle(Theme.textFaint)
+                .opacity(hovered ? 1 : 0)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isActive ? .white.opacity(0.1) : .clear, in: .rect(cornerRadius: 6))
+        .background(rowBackground, in: .rect(cornerRadius: Theme.radiusSmall))
         .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        if isWorking {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 6, height: 6)
+        } else if hasPermissionPending {
+            Circle().fill(Theme.warning).frame(width: 6, height: 6)
+        } else {
+            Circle()
+                .fill(isActive ? Theme.textAccent : .clear)
+                .frame(width: 6, height: 6)
+        }
+    }
+
+    private var rowBackground: Color {
+        if isActive { return Theme.overlayPressed }
+        if hovered { return Theme.overlayHover }
+        return .clear
     }
 }

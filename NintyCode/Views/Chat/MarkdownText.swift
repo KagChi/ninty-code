@@ -99,8 +99,8 @@ struct CodeBlockView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(language.isEmpty ? "code" : language)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textFaint)
                 Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
@@ -112,21 +112,23 @@ struct CodeBlockView: View {
                     }
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .font(.caption)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textFaint)
                 }
                 .buttonStyle(.borderless)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.white.opacity(0.04))
+            .background(Theme.layer01)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(.body, design: .monospaced))
+                    .font(Theme.mono)
+                    .foregroundStyle(Theme.textBase)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .background(.black.opacity(0.35), in: .rect(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.08), lineWidth: 1))
+        .background(Theme.bgDeep, in: .rect(cornerRadius: Theme.radiusLarge))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusLarge).stroke(Theme.borderBase, lineWidth: 0.5))
     }
 }

@@ -19,6 +19,7 @@ struct DisplayMessage: Identifiable, Equatable {
     var role: Role
     var text: String = ""
     var toolCalls: [ToolCallDisplay] = []
+    var timestamp: Date = Date()
 }
 
 // MARK: - ChatStore
@@ -142,6 +143,10 @@ final class ChatStore {
             messages[messages.count - 1].toolCalls.append(
                 ToolCallDisplay(id: id, name: name, arguments: .object([:]))
             )
+        case .toolCallUpdated(let id, let arguments):
+            guard let last = messages.indices.last,
+                  let index = messages[last].toolCalls.firstIndex(where: { $0.id == id }) else { return }
+            messages[last].toolCalls[index].arguments = arguments
         case .toolResult(let id, let name, let output, let isError):
             updateToolCall(id: id, name: name, output: output, isError: isError)
         case .permissionAsked(let request):

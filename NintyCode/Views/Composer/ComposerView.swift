@@ -1,7 +1,7 @@
 import SwiftUI
 import NintyCore
 
-/// Opencode-style composer: text area top, agent/model/send row bottom.
+/// opencode v2 PromptInput: rounded-xl raised panel, editor top, control bar bottom (h-11).
 struct ComposerView: View {
     let store: ChatStore
     @Environment(AppState.self) private var appState
@@ -15,71 +15,95 @@ struct ComposerView: View {
             if mentionQuery != nil, !mentionResults.isEmpty {
                 mentionPopup
             }
-            composer
+            panel
         }
     }
 
-    private var composer: some View {
-        VStack(spacing: 6) {
-            TextEditor(text: $text)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 38, maxHeight: 160)
-                .fixedSize(horizontal: false, vertical: true)
-                .focused($focused)
-                .onKeyPress(.return, phases: .down) { press in
-                    if press.modifiers.contains(.shift) { return .ignored }
-                    send()
-                    return .handled
+    private var panel: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $text)
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.textBase)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 60, maxHeight: 180)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .focused($focused)
+                    .onKeyPress(.return, phases: .down) { press in
+                        if press.modifiers.contains(.shift) { return .ignored }
+                        send()
+                        return .handled
+                    }
+                    .onChange(of: text) { updateMentions() }
+                if text.isEmpty {
+                    Text("Ask anything, @ for context…")
+                        .font(Theme.small)
+                        .foregroundStyle(Theme.textFaint)
+                        .padding(.top, 1)
+                        .allowsHitTesting(false)
                 }
-                .onKeyPress(.tab, phases: .down) { _ in
-                    cycleAgent()
-                    return .handled
-                }
-                .onChange(of: text) { updateMentions() }
-            HStack(spacing: 10) {
-                agentButton
-                modelMenu
-                Spacer()
-                sendButton
             }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            controlBar
         }
-        .padding(10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
-        .padding(.horizontal, 24)
-        .padding(.bottom, 8)
+        .frame(minHeight: 96)
+        .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
+        .raisedElevation(cornerRadius: Theme.radiusXL)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: 800)
     }
 
-    /// Agent pill — opencode shows active agent, tab/click cycles.
-    private var agentButton: some View {
-        Button {
-            cycleAgent()
+    private var controlBar: some View {
+        HStack(spacing: 6) {
+            agentMenu
+            modelMenu
+            Spacer()
+            submitButton
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 44)
+    }
+
+    /// Agent selector: capitalized name + chevron (opencode PromptInputV2Select).
+    private var agentMenu: some View {
+        Menu {
+            ForEach(appState.agents) { agent in
+                Button {
+                    appState.selectedAgentID = agent.id
+                    appState.reopenChatWithAgent()
+                } label: {
+                    if agent.id == store.agent.id {
+                        Label(agent.name, systemImage: "checkmark")
+                    } else {
+                        Text(agent.name)
+                    }
+                }
+            }
         } label: {
-            Text(store.agent.id.uppercased())
-                .font(.system(.caption, design: .monospaced, weight: .bold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(agentColor.opacity(0.2), in: .capsule)
-                .foregroundStyle(agentColor)
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(Theme.agentColor(store.agent.id))
+                    .frame(width: 6, height: 6)
+                Text(store.agent.name)
+                    .font(Theme.smallMedium)
+                    .foregroundStyle(Theme.textMuted)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.textFaint)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help("Agent mode (Tab to switch)")
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Choose agent")
     }
 
-    private var agentColor: Color {
-        store.agent.id == "plan" ? .orange : .accentColor
-    }
-
-    private func cycleAgent() {
-        let agents = appState.agents
-        guard !agents.isEmpty else { return }
-        let current = agents.firstIndex { $0.id == appState.selectedAgentID } ?? 0
-        let next = agents[(current + 1) % agents.count]
-        appState.selectedAgentID = next.id
-        // Agent applies per session — recreate chat with same session id on next send.
-        appState.reopenChatWithAgent()
-    }
-
+    /// Model selector: provider icon + model name + chevron.
     private var modelMenu: some View {
         Menu {
             if let registry = appState.registry {
@@ -96,13 +120,24 @@ struct ComposerView: View {
                 }
             }
         } label: {
-            Text(shortModelName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textFaint)
+                Text(shortModelName)
+                    .font(Theme.smallMedium)
+                    .foregroundStyle(Theme.textMuted)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.textFaint)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Model")
+        .help("Choose model")
     }
 
     private var shortModelName: String {
@@ -112,27 +147,34 @@ struct ComposerView: View {
         return model
     }
 
+    /// Submit: 28px rounded-md contrast button, arrow-up / stop.
     @ViewBuilder
-    private var sendButton: some View {
+    private var submitButton: some View {
         if store.streaming {
             Button {
                 store.abort()
             } label: {
-                Image(systemName: "stop.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(.red)
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.bgBase)
+                    .frame(width: 28, height: 28)
+                    .background(Theme.textBase, in: .rect(cornerRadius: Theme.radiusSmall))
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .help("Stop")
         } else {
             Button {
                 send()
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title3)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.bgBase)
+                    .frame(width: 28, height: 28)
+                    .background(Theme.textBase, in: .rect(cornerRadius: Theme.radiusSmall))
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
             .keyboardShortcut(.return, modifiers: .command)
             .help("Send (⌘↵)")
         }
@@ -162,18 +204,24 @@ struct ComposerView: View {
                     insertMention(path)
                 } label: {
                     Text(path)
-                        .font(.callout)
+                        .font(Theme.small)
+                        .foregroundStyle(Theme.textBase)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
+                        .background(Theme.overlayHover.opacity(0))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .backgroundHover
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 10))
-        .padding(.horizontal, 24)
+        .padding(6)
+        .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
+        .raisedElevation(cornerRadius: Theme.radiusXL)
+        .padding(.horizontal, 12)
         .padding(.bottom, 4)
+        .frame(maxWidth: 800)
     }
 
     private func insertMention(_ path: String) {
@@ -190,5 +238,16 @@ struct ComposerView: View {
         mentionResults = []
         store.send(value)
         focused = true
+    }
+}
+
+extension View {
+    /// Row hover highlight for menu-like lists.
+    var backgroundHover: some View {
+        self.overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                .fill(Theme.overlayHover)
+                .opacity(0)
+        )
     }
 }

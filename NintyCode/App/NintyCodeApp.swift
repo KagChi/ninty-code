@@ -9,6 +9,8 @@ struct NintyCodeApp: App {
             ContentView()
                 .environment(appState)
                 .frame(minWidth: 900, minHeight: 600)
+                .background(Theme.bgBase)
+                .preferredColorScheme(.dark)
                 .onAppear { appState.bootstrap() }
         }
         .windowToolbarStyle(.unified)
@@ -17,6 +19,7 @@ struct NintyCodeApp: App {
         Settings {
             SettingsView()
                 .environment(appState)
+                .preferredColorScheme(.dark)
         }
     }
 }
@@ -31,33 +34,41 @@ struct ContentView: View {
             if let chat = appState.activeChat {
                 ChatView(store: chat)
             } else {
-                WelcomeView()
+                NewSessionView()
             }
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
     }
 }
 
-struct WelcomeView: View {
+/// opencode "New session" empty view: centered mark + title + project info.
+struct NewSessionView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            if appState.projectRoot == nil {
-                Text("Open a project to start")
-                    .font(.title2)
-                Button("Open Project…") { appState.pickProject() }
-                    .buttonStyle(.borderedProminent)
+                .font(.system(size: 32))
+                .foregroundStyle(Theme.textFaint)
+            Text("New session")
+                .font(Theme.title)
+                .foregroundStyle(Theme.textBase)
+            if let root = appState.projectRoot {
+                VStack(spacing: 4) {
+                    Text(root.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(Theme.captionMedium)
+                        .foregroundStyle(Theme.textFaint)
+                    Button("Start chatting") { appState.newChat() }
+                        .buttonStyle(DockButtonStyle(variant: .primary))
+                        .padding(.top, 8)
+                }
             } else {
-                Text("Start a new session")
-                    .font(.title2)
-                Button("New Session") { appState.newChat() }
-                    .buttonStyle(.borderedProminent)
+                Button("Open project…") { appState.pickProject() }
+                    .buttonStyle(DockButtonStyle(variant: .primary))
+                    .padding(.top, 8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bgBase)
     }
 }
