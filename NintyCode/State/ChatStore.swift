@@ -213,6 +213,12 @@ final class ChatStore {
         pendingPermission = nil
     }
 
+    /// Cancel stream + turn; call before discarding so nothing retains the session.
+    func teardown() {
+        eventTask?.cancel()
+        Task { await session.abort() }
+    }
+
     func replyPermission(_ reply: PermissionReply) {
         guard let request = pendingPermission else { return }
         pendingPermission = nil

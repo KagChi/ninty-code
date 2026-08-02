@@ -70,17 +70,18 @@ final class AppState {
         activeChat = nil
     }
 
-    /// Cache project files for @ mention filtering. Single glob, background.
+    /// Cache project files for @ mention filtering. Bounded glob, background.
     private func loadProjectFiles() {
         guard let projectRoot else { return }
         projectFiles = []
-        Task { [weak self] in
+        Task(priority: .utility) { [weak self] in
             let result = try? await GlobTool().execute(
                 ["pattern": "**/*"],
                 ctx: ToolContext(projectRoot: projectRoot, sessionID: "mentions")
             )
             let files = result?.output.components(separatedBy: .newlines)
                 .filter { !$0.isEmpty && !$0.hasPrefix("(") }
+                .prefix(2_000)
                 .map { $0.hasPrefix(projectRoot.path + "/") ? String($0.dropFirst(projectRoot.path.count + 1)) : $0 } ?? []
             self?.projectFiles = files
         }
@@ -129,6 +130,10 @@ final class AppState {
     }
 
     private func makeChat(sessionID: String) -> ChatStore? {
+        // Tear down previous chat: cancel its stream + turn so nothing retains the old session.
+        if let old = activeChat {
+            old.teardown()
+        }
         guard let projectRoot, let registry, let resolved else { return nil }
         guard let (providerID, modelID) = ProviderRegistry.split(selectedModel) else {
             lastError = "Invalid model reference: \(selectedModel)"
@@ -162,6 +167,10 @@ final class AppState {
     // MARK: - MCP
 
     private func startMCP() {
+        // Stop previous manager's spawned server processes before replacing.
+        if let old = mcpManager {
+            Task { await old.stopAll() }
+        }
         let configs = resolved?.config.mcp ?? [:]
         guard !configs.isEmpty else {
             mcpManager = nil
