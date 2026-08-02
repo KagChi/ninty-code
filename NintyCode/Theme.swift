@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// opencode v2 dark theme tokens (from packages/ui/src/v2/styles).
+/// opencode v2 dark theme tokens (packages/ui/src/theme/v2 mapping, OC-2 dark).
 enum Theme {
     // Backgrounds (grey ramp)
-    static let bgBase = Color(red: 0x16 / 255, green: 0x16 / 255, blue: 0x16 / 255)      // grey-1100
-    static let bgDeep = Color(red: 0x08 / 255, green: 0x08 / 255, blue: 0x08 / 255)      // grey-1200
-    static let layer01 = Color(red: 0x24 / 255, green: 0x24 / 255, blue: 0x24 / 255)     // grey-1000
-    static let layer02 = Color(red: 0x2e / 255, green: 0x2e / 255, blue: 0x2e / 255)     // grey-900
-    static let layer03 = Color(red: 0x3a / 255, green: 0x3a / 255, blue: 0x3a / 255)     // grey-800
+    static let bgDeep = Color(red: 0x16 / 255, green: 0x16 / 255, blue: 0x16 / 255)      // grey-1100 — window chrome
+    static let bgBase = Color(red: 0x24 / 255, green: 0x24 / 255, blue: 0x24 / 255)      // grey-1000 — panels/cards
+    static let layer01 = Color(red: 0x3a / 255, green: 0x3a / 255, blue: 0x3a / 255)     // grey-800 — user bubble, hover fills
+    static let layer02 = Color(red: 0x2e / 255, green: 0x2e / 255, blue: 0x2e / 255)     // grey-900 — code blocks, previews
+    static let layer03 = Color(red: 0x4a / 255, green: 0x4a / 255, blue: 0x4a / 255)     // between grey-800/700 — secondary buttons
 
     // Text
     static let textBase = Color(red: 0xfa / 255, green: 0xfa / 255, blue: 0xfa / 255)    // grey-100

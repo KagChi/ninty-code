@@ -22,7 +22,7 @@ struct PermissionDock: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
+            .glassEffect(.regular.tint(Theme.bgBase.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
 
             // Footer tray
             HStack(spacing: 8) {

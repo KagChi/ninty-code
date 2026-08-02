@@ -33,7 +33,6 @@ struct ChatView: View {
             .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bgBase)
         .background(
             // ⇧⌘A auto-accept toggle (opencode per-session).
             Button("") { store.autoAccept.toggle() }
@@ -167,7 +166,7 @@ struct TodoDock: View {
                 .padding(.bottom, 12)
             }
         }
-        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
+        .glassEffect(.regular.tint(Theme.bgBase.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         .padding(.horizontal, 12)
         .frame(maxWidth: 800)
     }
@@ -240,7 +239,7 @@ struct FollowupDock: View {
                 .padding(.bottom, 12)
             }
         }
-        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
+        .glassEffect(.regular.tint(Theme.bgBase.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         .padding(.horizontal, 12)
         .frame(maxWidth: 800)
     }
@@ -301,7 +300,7 @@ struct RevertDock: View {
                 .padding(.bottom, 12)
             }
         }
-        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
+        .glassEffect(.regular.tint(Theme.bgBase.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         .padding(.horizontal, 12)
         .frame(maxWidth: 800)
     }

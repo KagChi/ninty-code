@@ -9,7 +9,7 @@ struct NintyCodeApp: App {
             ContentView()
                 .environment(appState)
                 .frame(minWidth: 900, minHeight: 600)
-                .background(Theme.bgBase)
+                .background(Theme.bgDeep)
                 .preferredColorScheme(.dark)
                 .onAppear { appState.bootstrap() }
         }
@@ -28,16 +28,24 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView()
-        } detail: {
-            if let chat = appState.activeChat {
-                ChatView(store: chat)
-            } else {
-                NewSessionView()
+        // opencode v2 shell: no left sidebar — titlebar + card on bg-deep.
+        VStack(spacing: 0) {
+            TitlebarView()
+            ZStack {
+                if appState.showHome {
+                    HomeView()
+                } else if let chat = appState.activeChat {
+                    ChatView(store: chat)
+                } else {
+                    NewSessionView()
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.bgBase, in: .rect(cornerRadius: 10))
+            .raisedElevation(cornerRadius: 10)
+            .padding(.init(top: 0, leading: 8, bottom: 8, trailing: 8))
         }
-        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+        .background(Theme.bgDeep)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .sheet(isPresented: Binding(
             get: { appState.showModelDialog },
@@ -73,6 +81,14 @@ struct GlobalKeybinds: View {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             Button("") { appState.newChat() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+            Button("") {
+                if let active = appState.activeChat { appState.closeTab(active) }
+            }
+            .keyboardShortcut("w", modifiers: .command)
+            ForEach(Array(appState.openTabs.prefix(9).enumerated()), id: \.offset) { index, chat in
+                Button("") { appState.activateTab(chat) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            }
         }
         .frame(width: 0, height: 0)
         .hidden()
@@ -107,6 +123,6 @@ struct NewSessionView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bgBase)
+        .background(Theme.bgDeep)
     }
 }

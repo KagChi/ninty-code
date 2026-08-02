@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 import NintyCore
 
@@ -16,6 +17,10 @@ final class AppState {
     // Sessions
     var sessions: [SessionMeta] = []
     var activeChat: ChatStore?
+    /// v2 tabs: open chats kept alive in memory (background streams continue).
+    var openTabs: [ChatStore] = []
+    /// Home overlay (⌘B) — v2 replaces the sidebar with this.
+    var showHome = false
 
     // Cached project file paths (for @ mentions) — loaded once per project.
     var projectFiles: [String] = []
@@ -50,20 +55,39 @@ final class AppState {
         baseRegistry = try? ProviderRegistry.load()
         registry = baseRegistry
         recentModels = UserDefaults.standard.stringArray(forKey: "recentModels") ?? []
+        recentProjects = (UserDefaults.standard.stringArray(forKey: "recentProjects") ?? [])
+            .map { URL(fileURLWithPath: $0) }
         if let last = UserDefaults.standard.url(forKey: "lastProject") {
             openProject(last)
+        } else {
+            showHome = true
         }
     }
 
     // MARK: - Project
 
-    /// NSOpenPanel lives in the UI layer; App calls this via a closure set by the view.
-    var pickProjectHandler: () -> Void = {}
-    func pickProject() { pickProjectHandler() }
+    /// NSOpenPanel folder picker (async, non-blocking).
+    func pickProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open Project"
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in self?.openProject(url) }
+        }
+    }
 
     func openProject(_ url: URL) {
         projectRoot = url
         UserDefaults.standard.set(url, forKey: "lastProject")
+        // Track recents (max 8, most-recent first).
+        recentProjects.removeAll { $0 == url }
+        recentProjects.insert(url, at: 0)
+        if recentProjects.count > 8 { recentProjects.removeLast(recentProjects.count - 8) }
+        UserDefaults.standard.set(recentProjects.map(\.path), forKey: "recentProjects")
         do {
             resolved = try configLoader.load(projectRoot: url)
         } catch {
@@ -78,7 +102,11 @@ final class AppState {
         startMCP()
         reloadSessions()
         loadProjectFiles()
+        // New project: drop all tabs (sessions belong to the old project).
+        for tab in openTabs { tab.teardown() }
+        openTabs = []
         activeChat = nil
+        showHome = true
     }
 
     /// Re-read config + rebuild merged registry (after settings edits). Keeps active chat.
@@ -137,11 +165,18 @@ final class AppState {
     }
 
     func newChat() {
-        activeChat = makeChat(sessionID: UUID().uuidString)
+        let chat = makeChat(sessionID: UUID().uuidString)
+        pushTab(chat)
     }
 
     /// Open an existing session: restore its saved agent/model selection (opencode per-session persistence).
+    /// Already open in a tab → focus that tab instead of a second instance.
     func openChat(_ id: String) {
+        if let existing = openTabs.first(where: { $0.sessionID == id }) {
+            activeChat = existing
+            showHome = false
+            return
+        }
         if let meta = sessions.first(where: { $0.id == id }) {
             if let agent = agents.first(where: { $0.id == meta.agentID }) {
                 selectedAgentID = agent.id
@@ -150,7 +185,51 @@ final class AppState {
                 selectedModel = meta.model
             }
         }
-        activeChat = makeChat(sessionID: id)
+        pushTab(makeChat(sessionID: id))
+    }
+
+    private func pushTab(_ chat: ChatStore?) {
+        guard let chat else { return }
+        openTabs.append(chat)
+        activateTab(chat)
+        showHome = false
+    }
+
+    func activateTab(_ chat: ChatStore) {
+        activeChat = chat
+        syncActiveFlags()
+        chat.hasUnread = false
+        // Restore per-session agent/model selection into the pickers.
+        selectedAgentID = chat.agent.id
+        if let meta = sessions.first(where: { $0.id == chat.sessionID }),
+           ProviderRegistry.split(meta.model) != nil {
+            selectedModel = meta.model
+        }
+    }
+
+    func closeTab(_ chat: ChatStore) {
+        guard let index = openTabs.firstIndex(where: { $0.sessionID == chat.sessionID }) else { return }
+        chat.teardown()
+        openTabs.remove(at: index)
+        if activeChat?.sessionID == chat.sessionID {
+            if let next = openTabs[safe: min(index, openTabs.count - 1)] {
+                activateTab(next)
+            } else {
+                activeChat = nil
+                syncActiveFlags()
+                showHome = true
+            }
+        }
+    }
+
+    private func syncActiveFlags() {
+        for tab in openTabs { tab.isActive = tab.sessionID == activeChat?.sessionID }
+    }
+
+    func moveTab(from: Int, to: Int) {
+        guard from != to, openTabs.indices.contains(from), to >= 0, to <= openTabs.count else { return }
+        let tab = openTabs.remove(at: from)
+        openTabs.insert(tab, at: to > from ? to - 1 : to)
     }
 
     /// Switch agent on the live chat — in place, no history loss.
@@ -181,10 +260,6 @@ final class AppState {
     }
 
     private func makeChat(sessionID: String) -> ChatStore? {
-        // Tear down previous chat: cancel its stream + turn so nothing retains the old session.
-        if let old = activeChat {
-            old.teardown()
-        }
         guard let projectRoot, let registry, let resolved else { return nil }
         guard let (providerID, modelID) = ProviderRegistry.split(selectedModel) else {
             lastError = "Invalid model reference: \(selectedModel)"
@@ -255,5 +330,11 @@ final class AppState {
 
     func storedAPIKey(for provider: String) -> String {
         configLoader.readAuth()[provider] ?? ""
+    }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

@@ -51,7 +51,7 @@ struct MessageView: View {
                 .textSelection(.enabled)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Theme.layer02, in: .rect(cornerRadius: Theme.radiusLarge))
+                .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusLarge))
                 .frame(maxWidth: 520, alignment: .trailing)
             metaRow(alignment: .trailing)
         }

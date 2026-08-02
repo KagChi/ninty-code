@@ -45,6 +45,10 @@ final class ChatStore {
     var retry: (attempt: Int, delay: Int)?
     /// Files changed during the last completed turn ("Changed N files" accordion).
     var changedFiles: [String] = []
+    /// Set by AppState: whether this tab is currently visible.
+    var isActive = false
+    /// Background activity marker (opencode unread dot).
+    var hasUnread = false
 
     let sessionID: String
     let projectRoot: URL
@@ -152,6 +156,7 @@ final class ChatStore {
     }
 
     private func handle(_ event: SessionEvent) {
+        if !isActive { hasUnread = true }
         switch event {
         case .textDelta(let delta):
             ensureAssistantMessage()
