@@ -19,6 +19,9 @@ struct ChatView: View {
                 if !store.followups.isEmpty {
                     FollowupDock(store: store)
                 }
+                if !store.revertedMessages.isEmpty {
+                    RevertDock(store: store)
+                }
                 if !store.todos.isEmpty {
                     TodoDock(todos: store.todos)
                 }
@@ -205,6 +208,67 @@ struct FollowupDock: View {
                                 .buttonStyle(DockButtonStyle(variant: .secondary))
                                 .controlSize(.small)
                             Button("Edit") { store.editFollowup(at: index) }
+                                .buttonStyle(DockButtonStyle(variant: .ghost))
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
+        }
+        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: 800)
+    }
+}
+
+/// opencode revert dock: reverted messages with per-message Restore + Redo all.
+struct RevertDock: View {
+    let store: ChatStore
+    @State private var expanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.warning)
+                    Text("\(store.revertedMessages.count) reverted message\(store.revertedMessages.count == 1 ? "" : "s")")
+                        .font(Theme.smallMedium)
+                        .foregroundStyle(Theme.textBase)
+                    Spacer()
+                    Button("Redo all") {
+                        while !store.revertedMessages.isEmpty { store.redo() }
+                    }
+                    .buttonStyle(DockButtonStyle(variant: .secondary))
+                    .controlSize(.small)
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(expanded ? 0 : 180))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(store.revertedMessages.enumerated()), id: \.offset) { index, message in
+                        HStack(spacing: 8) {
+                            Image(systemName: message.role == .user ? "person" : "sparkle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Theme.textFaint)
+                            Text(message.text.isEmpty ? "(tool calls)" : message.text)
+                                .font(Theme.small)
+                                .foregroundStyle(Theme.textMuted)
+                                .lineLimit(1)
+                            Spacer()
+                            Button("Restore") { store.restoreReverted(upTo: index) }
                                 .buttonStyle(DockButtonStyle(variant: .ghost))
                                 .controlSize(.small)
                         }

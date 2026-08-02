@@ -37,6 +37,8 @@ final class ChatStore {
     var lastError: String?
     /// Steer queue: messages sent while streaming, drained by the session.
     var followups: [String] = []
+    /// Messages hidden by /undo (not deleted — opencode revert semantics).
+    var revertedMessages: [DisplayMessage] = []
 
     let sessionID: String
     private(set) var agent: Agent
@@ -166,6 +168,8 @@ final class ChatStore {
             messages.append(DisplayMessage(role: .assistant, text: "Compaction", isMarker: true))
         case .queueChanged(let queue):
             followups = queue
+        case .revertStateChanged:
+            break // revertedMessages array is the UI source of truth
         case .titleGenerated:
             onChange() // sidebar refresh picks up new title
         case .agentChanged(let newAgent):
@@ -206,10 +210,17 @@ final class ChatStore {
 
     /// opencode steer semantics: sending while streaming queues the message
     /// (server-side in the session); the UI mirrors the queue as a dock.
+    /// Sending while reverted permanently deletes the reverted messages.
     func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         lastError = nil
+        if !revertedMessages.isEmpty {
+            revertedMessages = []
+            // Everything currently visible (non-marker) is persisted history to keep.
+            let keep = messages.filter { !$0.isMarker }.count
+            Task { await session.commitRevertedState(keepingMessages: keep) }
+        }
         if streaming {
             Task { await session.send(trimmed) } // session enqueues
             return
@@ -250,6 +261,43 @@ final class ChatStore {
         Task { await session.abort() }
         streaming = false
         pendingPermission = nil
+    }
+
+    // MARK: - Undo / redo (opencode revert semantics)
+
+    /// /undo: hide messages from the last user message onward + restore files to
+    /// before that turn. Reverted prompt text returns to the composer.
+    func undo() {
+        guard !streaming, let boundary = messages.lastIndex(where: { $0.role == .user && !$0.isMarker }) else { return }
+        let reverted = Array(messages[boundary...])
+        restoredDraft = reverted.first?.text
+        revertedMessages.append(contentsOf: reverted)
+        messages.removeLast(messages.count - boundary)
+        Task { await session.revert() }
+    }
+
+    /// /redo: restore the next batch of reverted messages (up to and including the
+    /// next user message) + re-apply that turn's file changes.
+    func redo() {
+        guard !revertedMessages.isEmpty else { return }
+        // Restore through the next user message boundary (or everything if none).
+        var end = revertedMessages.count
+        for (index, message) in revertedMessages.enumerated() where index > 0 {
+            if message.role == .user && !message.isMarker { end = index; break }
+        }
+        let restored = Array(revertedMessages.prefix(end))
+        revertedMessages.removeFirst(end)
+        messages.append(contentsOf: restored)
+        Task { await session.unrevert() }
+    }
+
+    /// Restore one specific reverted message (and everything before it), dock-style.
+    func restoreReverted(upTo index: Int) {
+        guard revertedMessages.indices.contains(index) else { return }
+        let restored = Array(revertedMessages.prefix(through: index))
+        revertedMessages.removeFirst(index + 1)
+        messages.append(contentsOf: restored)
+        Task { await session.unrevert() }
     }
 
     /// Switch agent in place — history kept, next message uses the new agent.

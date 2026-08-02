@@ -179,6 +179,18 @@ public actor SessionStore {
         saveIndex()
     }
 
+    /// Permanently drop all messages after the first `keepCount` (opencode cleanup on new prompt after revert).
+    public func truncate(keepingMessages keepCount: Int, sessionID: String) throws {
+        let (meta, messages) = try readAll(id: sessionID)
+        guard let meta else { return }
+        var lines: [Data] = [try encoder.encode(SessionRecord.meta(meta))]
+        for message in messages.prefix(keepCount) {
+            lines.append(try encoder.encode(SessionRecord.message(message)))
+        }
+        let data = lines.map { $0 + Data("\n".utf8) }.reduce(Data(), +)
+        try data.write(to: fileURL(id: sessionID), options: .atomic)
+    }
+
     /// Update the session title (sidecar index only — meta record in the file keeps the original).
     public func updateTitle(_ title: String, sessionID: String) throws {
         guard var meta = index[sessionID] else { return }

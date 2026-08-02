@@ -13,6 +13,8 @@ public enum SessionEvent: Sendable {
     case titleGenerated(String)
     case agentChanged(Agent)
     case modelChanged(String)
+    /// File revert/redo performed; count = current redo depth (0 = not reverted).
+    case revertStateChanged(restoredFiles: [String], redoDepth: Int)
     case error(String)
     case done(input: Int, output: Int)
 }
@@ -38,6 +40,7 @@ public actor AgentSession {
     private let permissionEngine: PermissionEngine
     private let store: SessionStore
     private let todoStore: TodoStore
+    private let snapshots = SnapshotStore()
     private let projectRoot: URL
     private let projectInstructions: String?
     private var systemPrompt: String
@@ -163,6 +166,35 @@ public actor AgentSession {
         await permissionEngine.reply(id, reply)
     }
 
+    // MARK: - Revert (undo/redo)
+
+    public var redoDepth: Int { get async { await snapshots.redoDepth } }
+
+    /// /undo: restore files changed during the last user turn. Caller hides the messages.
+    public func revert() async -> [String] {
+        if busy { abort() }
+        let restored = await snapshots.revert()
+        continuation.yield(.revertStateChanged(restoredFiles: restored, redoDepth: await snapshots.redoDepth))
+        return restored
+    }
+
+    /// /redo: re-apply the most recently reverted turn's files.
+    public func unrevert() async -> [String] {
+        let restored = await snapshots.redo()
+        continuation.yield(.revertStateChanged(restoredFiles: restored, redoDepth: await snapshots.redoDepth))
+        return restored
+    }
+
+    /// New prompt while reverted is permanent: drop redo stash + delete hidden messages.
+    public func commitRevertedState(keepingMessages keepCount: Int) async {
+        await snapshots.clearReverted()
+        if keepCount < history.count {
+            history = Array(history.prefix(keepCount))
+            try? await store.truncate(keepingMessages: keepCount, sessionID: id)
+        }
+        continuation.yield(.revertStateChanged(restoredFiles: [], redoDepth: 0))
+    }
+
     private func startTurn(_ text: String) {
         busy = true
         turnEpoch += 1
@@ -177,6 +209,7 @@ public actor AgentSession {
         let userMessage = Message.user(text)
         history.append(userMessage)
         try? await store.append(userMessage, sessionID: id)
+        await snapshots.beginTurn()
 
         // Only the current epoch clears busy — a cancelled superseded turn must not.
         defer { if epoch == turnEpoch { busy = false } }
@@ -332,6 +365,11 @@ public actor AgentSession {
             )
         } catch {
             return .error("Permission denied: \(tool.name)")
+        }
+        // Snapshot before mutation (opencode revert support).
+        if tool.name == "edit" || tool.name == "write",
+           let path = arguments["path"]?.stringValue {
+            await snapshots.recordOriginal(path: ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path)
         }
         do {
             return try await tool.execute(arguments, ctx: ToolContext(projectRoot: projectRoot, sessionID: id))
