@@ -67,17 +67,21 @@ public struct ConfigLoader: Sendable {
 
     /// Walk up from `start` looking for the nearest ninty.json.
     public func findProjectConfig(from start: URL) -> URL? {
+        let globalConfigDir = globalConfigURL.deletingLastPathComponent().path
         var dir = start.standardizedFileURL
-        while true {
+        // Guard on path length: some URL forms yield "/..", "/../.." past root,
+        // so `parent == dir` alone is not a reliable termination check.
+        while dir.path != "/" {
             let candidate = dir.appendingPathComponent(Self.configFileName)
-            if dir.path != globalConfigURL.deletingLastPathComponent().path,
+            if dir.path != globalConfigDir,
                FileManager.default.fileExists(atPath: candidate.path) {
                 return candidate
             }
             let parent = dir.deletingLastPathComponent()
-            if parent.path == dir.path { return nil }
+            if parent.path.count >= dir.path.count { return nil }
             dir = parent
         }
+        return nil
     }
 
     private func loadFile(at url: URL) throws -> NintyConfig? {

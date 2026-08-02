@@ -38,6 +38,7 @@ struct ContentView: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+        .toolbarBackground(.hidden, for: .windowToolbar)
     }
 }
 

@@ -50,8 +50,7 @@ struct ComposerView: View {
             controlBar
         }
         .frame(minHeight: 96)
-        .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
-        .raisedElevation(cornerRadius: Theme.radiusXL)
+        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         .padding(.horizontal, 12)
         .frame(maxWidth: 800)
     }
@@ -217,8 +216,7 @@ struct ComposerView: View {
             }
         }
         .padding(6)
-        .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
-        .raisedElevation(cornerRadius: Theme.radiusXL)
+        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
         .frame(maxWidth: 800)

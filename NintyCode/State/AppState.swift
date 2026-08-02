@@ -70,20 +70,20 @@ final class AppState {
         activeChat = nil
     }
 
-    /// Cache project files for @ mention filtering. Bounded glob, background.
+    /// Cache project files for @ mention filtering. Detached + bounded walk — must never
+    /// run on MainActor (sync enumeration of a large tree freezes the UI).
     private func loadProjectFiles() {
         guard let projectRoot else { return }
         projectFiles = []
-        Task(priority: .utility) { [weak self] in
-            let result = try? await GlobTool().execute(
-                ["pattern": "**/*"],
-                ctx: ToolContext(projectRoot: projectRoot, sessionID: "mentions")
-            )
-            let files = result?.output.components(separatedBy: .newlines)
-                .filter { !$0.isEmpty && !$0.hasPrefix("(") }
-                .prefix(2_000)
-                .map { $0.hasPrefix(projectRoot.path + "/") ? String($0.dropFirst(projectRoot.path.count + 1)) : $0 } ?? []
-            self?.projectFiles = files
+        Task.detached(priority: .utility) { [weak self] in
+            let urls = GlobTool.collectFiles(base: projectRoot, keys: [.isDirectoryKey], limit: 2_000) ?? []
+            let basePath = projectRoot.resolvingSymlinksInPath().path
+            let files = urls.map { url -> String in
+                let path = url.resolvingSymlinksInPath().path
+                return path.hasPrefix(basePath + "/") ? String(path.dropFirst(basePath.count + 1)) : path
+            }
+            let state = self
+            await MainActor.run { state?.projectFiles = files }
         }
     }
 

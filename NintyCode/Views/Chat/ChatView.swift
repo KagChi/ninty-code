@@ -73,8 +73,7 @@ struct ChatView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Theme.textBase)
                             .frame(width: 32, height: 28)
-                            .background(Theme.layer01.opacity(0.92), in: .rect(cornerRadius: Theme.radiusMedium))
-                            .raisedElevation(cornerRadius: Theme.radiusMedium)
+                            .glassEffect(.regular, in: .rect(cornerRadius: Theme.radiusMedium))
                     }
                     .buttonStyle(.plain)
                     .padding(.bottom, 190)
@@ -139,8 +138,7 @@ struct TodoDock: View {
                 .padding(.bottom, 12)
             }
         }
-        .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radiusXL).stroke(Theme.borderBase, lineWidth: 0.5))
+        .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         .padding(.horizontal, 12)
         .frame(maxWidth: 800)
     }

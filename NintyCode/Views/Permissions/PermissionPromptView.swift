@@ -22,8 +22,7 @@ struct PermissionDock: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusXL))
-            .raisedElevation(cornerRadius: Theme.radiusXL)
+            .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
 
             // Footer tray
             HStack(spacing: 8) {
@@ -38,8 +37,7 @@ struct PermissionDock: View {
                     .keyboardShortcut(.defaultAction)
             }
             .padding(8)
-            .background(Theme.bgBase, in: .rect(cornerRadius: Theme.radiusXL))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusXL).stroke(Theme.borderMuted, lineWidth: 1))
+            .glassEffect(.regular.tint(Theme.bgBase.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         }
         .padding(.horizontal, 12)
         .frame(maxWidth: 800)

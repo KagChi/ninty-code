@@ -18,11 +18,13 @@ public struct GlobTool: AgentTool {
     static let skippedDirectories: Set<String> = [".git", "node_modules", ".build", "DerivedData", ".swiftpm"]
 
     /// Synchronous directory walk (enumerator iteration is unavailable in async contexts).
-    static func collectFiles(base: URL, keys: [URLResourceKey]) -> [URL]? {
+    /// Stops after `limit` files to bound time/memory on large trees.
+    public static func collectFiles(base: URL, keys: [URLResourceKey], limit: Int = 10_000) -> [URL]? {
         guard let enumerator = FileManager.default.enumerator(
             at: base, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
         ) else { return nil }
         var files: [URL] = []
+        files.reserveCapacity(min(limit, 1_024))
         for case let url as URL in enumerator {
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isDir {
@@ -30,6 +32,7 @@ public struct GlobTool: AgentTool {
                 continue
             }
             files.append(url)
+            if files.count >= limit { break }
         }
         return files
     }

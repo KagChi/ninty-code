@@ -15,7 +15,6 @@ struct SidebarView: View {
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.bgBase)
         .onAppear { appState.pickProjectHandler = pickProject }
     }
 
