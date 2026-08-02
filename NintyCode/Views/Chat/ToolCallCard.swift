@@ -1,45 +1,44 @@
 import SwiftUI
 import NintyCore
 
-struct ToolCallCard: View {
+/// Opencode-style compact tool row: status icon + name + summary, click to expand.
+struct ToolCallRow: View {
     let call: ToolCallDisplay
     @State private var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            Button {
+                withAnimation(.easeInOut(duration: 0.12)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    statusIcon
+                    Text(call.name.isEmpty ? "tool" : call.name)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.primary)
+                    Text(summary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    if call.output != nil || call.name == "edit" || call.name == "bash" {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             if expanded {
-                Divider()
-                body_
+                detail
+                    .padding(.leading, 22)
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
-    }
-
-    private var header: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-        } label: {
-            HStack(spacing: 8) {
-                statusIcon
-                Text(call.name.isEmpty ? "tool" : call.name)
-                    .font(.system(.callout, design: .monospaced))
-                    .fontWeight(.medium)
-                Text(summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private var statusIcon: some View {
@@ -48,11 +47,12 @@ struct ToolCallCard: View {
             case .running:
                 ProgressView().controlSize(.mini)
             case .done:
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Image(systemName: "checkmark").foregroundStyle(.green)
             case .failed:
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                Image(systemName: "xmark").foregroundStyle(.red)
             }
         }
+        .font(.system(.caption, weight: .bold))
         .frame(width: 14, height: 14)
     }
 
@@ -67,18 +67,17 @@ struct ToolCallCard: View {
     }
 
     @ViewBuilder
-    private var body_: some View {
+    private var detail: some View {
         VStack(alignment: .leading, spacing: 8) {
             if call.name == "edit", let diff = editDiff {
                 DiffView(diff: diff)
             } else if call.name == "bash", let command = call.arguments["command"]?.stringValue {
-                TerminalBlock(title: "command", text: command)
+                DetailBlock(title: "command", text: command)
             }
             if let output = call.output, !output.isEmpty {
-                TerminalBlock(title: call.isError ? "error" : "output", text: output)
+                DetailBlock(title: call.isError ? "error" : "output", text: output)
             }
         }
-        .padding(12)
     }
 
     private var editDiff: (path: String, removed: [String], added: [String])? {
@@ -92,7 +91,7 @@ struct ToolCallCard: View {
     }
 }
 
-struct TerminalBlock: View {
+struct DetailBlock: View {
     let title: String
     let text: String
 
@@ -100,7 +99,7 @@ struct TerminalBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
             ScrollView([.horizontal, .vertical], showsIndicators: false) {
@@ -113,7 +112,8 @@ struct TerminalBlock: View {
             }
             .frame(maxHeight: 240)
         }
-        .background(.black.opacity(0.25), in: .rect(cornerRadius: 8))
+        .background(.black.opacity(0.35), in: .rect(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.08), lineWidth: 1))
     }
 }
 
@@ -124,7 +124,7 @@ struct DiffView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(diff.path)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -147,6 +147,7 @@ struct DiffView: View {
                 .padding(.bottom, 8)
             }
         }
-        .background(.black.opacity(0.25), in: .rect(cornerRadius: 8))
+        .background(.black.opacity(0.35), in: .rect(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.08), lineWidth: 1))
     }
 }

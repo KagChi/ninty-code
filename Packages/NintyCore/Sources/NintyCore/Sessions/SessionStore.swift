@@ -91,16 +91,56 @@ public actor SessionStore {
         let meta = SessionMeta(id: id, title: title, agentID: agentID, model: model, created: now, updated: now)
         let data = try encoder.encode(SessionRecord.meta(meta))
         try (data + Data("\n".utf8)).write(to: fileURL(id: id), options: .atomic)
+        setIndexMeta(meta)
         return meta
     }
 
-    /// Append a message record + touch updated timestamp (rewrites meta line).
+    /// Append a message record + refresh meta.updated in the sidecar index.
     public func append(_ message: Message, sessionID: String) throws {
         let data = try encoder.encode(SessionRecord.message(message))
         let handle = try FileHandle(forWritingTo: fileURL(id: sessionID))
         defer { try? handle.close() }
         try handle.seekToEnd()
         try handle.write(contentsOf: data + Data("\n".utf8))
+        if var meta = index[sessionID] {
+            meta.updated = Date()
+            index[sessionID] = meta
+            saveIndex()
+        }
+    }
+
+    // MARK: - Sidecar index (O(1) listing, no full-file parses)
+
+    private var indexURL: URL {
+        directory.appendingPathComponent(".index.json")
+    }
+
+    private var indexCache: [String: SessionMeta]?
+    private var index: [String: SessionMeta] {
+        get {
+            if let indexCache { return indexCache }
+            if let data = try? Data(contentsOf: indexURL),
+               let decoded = try? decoder.decode([String: SessionMeta].self, from: data) {
+                return decoded
+            }
+            return [:]
+        }
+        set { indexCache = newValue }
+    }
+
+    private func saveIndex() {
+        guard let data = try? encoder.encode(index) else { return }
+        try? data.write(to: indexURL, options: .atomic)
+    }
+
+    private func setIndexMeta(_ meta: SessionMeta) {
+        index[meta.id] = meta
+        saveIndex()
+    }
+
+    /// List session metas, newest updated first. Reads only the sidecar index — cheap.
+    public func listMetas() throws -> [SessionMeta] {
+        index.values.sorted { $0.updated > $1.updated }
     }
 
     /// Load meta + full message history. Corrupt lines are skipped.
@@ -128,23 +168,14 @@ public actor SessionStore {
         return (meta, messages)
     }
 
-    /// List all sessions, newest updated first.
+    /// List all sessions, newest updated first. Reads only first lines — cheap.
     public func list() throws -> [SessionMeta] {
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil
-        ) else { return [] }
-        var metas: [SessionMeta] = []
-        for file in files where file.pathExtension == "jsonl" {
-            let id = file.deletingPathExtension().lastPathComponent
-            let (meta, _) = try readAll(id: id)
-            if let meta {
-                metas.append(meta)
-            }
-        }
-        return metas.sorted { $0.updated > $1.updated }
+        try listMetas()
     }
 
     public func delete(id: String) throws {
         try FileManager.default.removeItem(at: fileURL(id: id))
+        index[id] = nil
+        saveIndex()
     }
 }

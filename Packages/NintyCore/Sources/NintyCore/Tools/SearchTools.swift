@@ -75,8 +75,15 @@ struct GlobMatcher: Sendable {
             let next = pattern.index(after: index)
             if char == "*" {
                 if next < pattern.endIndex && pattern[next] == "*" {
+                    // `**/` matches zero or more directories; bare `**` matches anything.
+                    let afterDouble = next < pattern.endIndex ? pattern.index(after: next) : next
+                    if afterDouble < pattern.endIndex && pattern[afterDouble] == "/" {
+                        regex += "(?:.*/)?"
+                        index = pattern.index(after: afterDouble)
+                        continue
+                    }
                     regex += ".*"
-                    index = pattern.index(after: next)
+                    index = afterDouble
                     continue
                 }
                 regex += "[^/]*"

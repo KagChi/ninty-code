@@ -3,6 +3,7 @@ import NintyCore
 
 struct ChatView: View {
     let store: ChatStore
+    @Environment(AppState.self) private var appState
     @State private var userScrolledUp = false
 
     var body: some View {
@@ -17,6 +18,7 @@ struct ChatView: View {
                 }
             }
             ComposerView(store: store)
+            statusBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .alert("Error", isPresented: .constant(store.lastError != nil)) {
@@ -29,24 +31,19 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 18) {
                     ForEach(store.messages) { message in
                         MessageView(message: message)
                             .id(message.id)
                     }
                     if store.streaming {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Working…")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .id("streaming-indicator")
+                        StreamingIndicator()
+                            .id("streaming-indicator")
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Track scroll position via bottom anchor visibility.
                 Color.clear
                     .frame(height: 1)
                     .id("bottom")
@@ -55,13 +52,63 @@ struct ChatView: View {
             }
             .onChange(of: store.messages.last?.text.count ?? 0) {
                 guard !userScrolledUp else { return }
-                withAnimation(.linear(duration: 0.05)) {
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                }
+                proxy.scrollTo("bottom", anchor: .bottom)
             }
             .onChange(of: store.messages.count) {
                 userScrolledUp = false
                 proxy.scrollTo("bottom", anchor: .bottom)
+            }
+        }
+    }
+
+    /// Opencode-style bottom status bar: path left, model + agent right.
+    private var statusBar: some View {
+        HStack(spacing: 8) {
+            if let root = appState.projectRoot {
+                Text(root.path)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            if store.compacted {
+                Text("compacted")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+            Text(shortModel)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(store.agent.id.uppercased())
+                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 6)
+        .background(.white.opacity(0.03))
+    }
+
+    private var shortModel: String {
+        ProviderRegistry.split(store.model)?.model ?? store.model
+    }
+}
+
+struct StreamingIndicator: View {
+    @State private var phase = 0
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(.secondary)
+                    .frame(width: 5, height: 5)
+                    .opacity(phase == index ? 1 : 0.3)
+            }
+        }
+        .onAppear {
+            Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
+                phase = (phase + 1) % 3
             }
         }
     }
@@ -86,7 +133,7 @@ struct TodoBar: View {
                     .glassEffect(.regular, in: .capsule)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 24)
             .padding(.vertical, 8)
         }
     }

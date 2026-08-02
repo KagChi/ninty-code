@@ -14,6 +14,7 @@
 		33D8CE0C5DB86AC5365AEDD4 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 945032613CB81D306B36EC12 /* ChatStore.swift */; };
 		3EE77E1CA94F2B6D8EE8B4FF /* PermissionPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02A447C9850494386789819 /* PermissionPromptView.swift */; };
 		4D9C04B841F29D387ACFF283 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64A903AFB9CC997C362CEC5 /* ChatView.swift */; };
+		E0AA30BB997A73BBA1B89902 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17708EBF376022B1CEB684F9 /* MarkdownText.swift */; };
 		EBBAC666568A5264CF41FC78 /* NintyCodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68400302511C84A16456E751 /* NintyCodeApp.swift */; };
 		F04B502AD8F915D11ED4E01D /* ToolCallCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0327AF5B13B3180B60F4D7A1 /* ToolCallCard.swift */; };
 		F16341C833A5F519D549BC5A /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02937BA2AEA821B8BCDE7ADA /* ComposerView.swift */; };
@@ -24,6 +25,7 @@
 		02937BA2AEA821B8BCDE7ADA /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
 		0327AF5B13B3180B60F4D7A1 /* ToolCallCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallCard.swift; sourceTree = "<group>"; };
 		101DDE0D1213D26582255FB4 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
+		17708EBF376022B1CEB684F9 /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		50A049FCBA66A431BEAD0A85 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		68400302511C84A16456E751 /* NintyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NintyCodeApp.swift; sourceTree = "<group>"; };
 		9349D4E39A86CD1A62F62345 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -124,6 +126,7 @@
 			isa = PBXGroup;
 			children = (
 				A64A903AFB9CC997C362CEC5 /* ChatView.swift */,
+				17708EBF376022B1CEB684F9 /* MarkdownText.swift */,
 				101DDE0D1213D26582255FB4 /* MessageView.swift */,
 				0327AF5B13B3180B60F4D7A1 /* ToolCallCard.swift */,
 			);
@@ -228,6 +231,7 @@
 				33D8CE0C5DB86AC5365AEDD4 /* ChatStore.swift in Sources */,
 				4D9C04B841F29D387ACFF283 /* ChatView.swift in Sources */,
 				F16341C833A5F519D549BC5A /* ComposerView.swift in Sources */,
+				E0AA30BB997A73BBA1B89902 /* MarkdownText.swift in Sources */,
 				0CE060D310DA747F78D77993 /* MessageView.swift in Sources */,
 				EBBAC666568A5264CF41FC78 /* NintyCodeApp.swift in Sources */,
 				3EE77E1CA94F2B6D8EE8B4FF /* PermissionPromptView.swift in Sources */,

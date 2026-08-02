@@ -17,6 +17,9 @@ final class AppState {
     var sessions: [SessionMeta] = []
     var activeChat: ChatStore?
 
+    // Cached project file paths (for @ mentions) — loaded once per project.
+    var projectFiles: [String] = []
+
     // Agents + models
     var agents: [Agent] = []
     var selectedAgentID = "build"
@@ -63,7 +66,24 @@ final class AppState {
         }
         startMCP()
         reloadSessions()
+        loadProjectFiles()
         activeChat = nil
+    }
+
+    /// Cache project files for @ mention filtering. Single glob, background.
+    private func loadProjectFiles() {
+        guard let projectRoot else { return }
+        projectFiles = []
+        Task { [weak self] in
+            let result = try? await GlobTool().execute(
+                ["pattern": "**/*"],
+                ctx: ToolContext(projectRoot: projectRoot, sessionID: "mentions")
+            )
+            let files = result?.output.components(separatedBy: .newlines)
+                .filter { !$0.isEmpty && !$0.hasPrefix("(") }
+                .map { $0.hasPrefix(projectRoot.path + "/") ? String($0.dropFirst(projectRoot.path.count + 1)) : $0 } ?? []
+            self?.projectFiles = files
+        }
     }
 
     func defaultModelReference() -> String {
@@ -99,6 +119,12 @@ final class AppState {
     }
 
     func openChat(_ id: String) {
+        activeChat = makeChat(sessionID: id)
+    }
+
+    /// Recreate the active chat with the currently selected agent (same session id, history restored).
+    func reopenChatWithAgent() {
+        guard let id = activeChat?.sessionID else { return }
         activeChat = makeChat(sessionID: id)
     }
 
