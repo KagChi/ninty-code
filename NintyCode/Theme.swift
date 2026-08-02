@@ -1,19 +1,19 @@
 import SwiftUI
 
-/// opencode v2 dark theme tokens (packages/ui/src/theme/v2 mapping, OC-2 dark).
+/// Catppuccin Macchiato theme on the opencode v2 token structure.
 enum Theme {
-    // Backgrounds (grey ramp)
-    static let bgDeep = Color(red: 0x16 / 255, green: 0x16 / 255, blue: 0x16 / 255)      // grey-1100 — window chrome
-    static let bgBase = Color(red: 0x24 / 255, green: 0x24 / 255, blue: 0x24 / 255)      // grey-1000 — panels/cards
-    static let layer01 = Color(red: 0x3a / 255, green: 0x3a / 255, blue: 0x3a / 255)     // grey-800 — user bubble, hover fills
-    static let layer02 = Color(red: 0x2e / 255, green: 0x2e / 255, blue: 0x2e / 255)     // grey-900 — code blocks, previews
-    static let layer03 = Color(red: 0x4a / 255, green: 0x4a / 255, blue: 0x4a / 255)     // between grey-800/700 — secondary buttons
+    // Backgrounds
+    static let bgDeep = Color(red: 0x1e / 255, green: 0x20 / 255, blue: 0x30 / 255)      // mantle — window chrome
+    static let bgBase = Color(red: 0x24 / 255, green: 0x27 / 255, blue: 0x3a / 255)      // base — panels/cards
+    static let layer01 = Color(red: 0x36 / 255, green: 0x3a / 255, blue: 0x4f / 255)     // surface0 — user bubble, hover fills
+    static let layer02 = Color(red: 0x18 / 255, green: 0x19 / 255, blue: 0x26 / 255)     // crust — code blocks, insets
+    static let layer03 = Color(red: 0x49 / 255, green: 0x4d / 255, blue: 0x64 / 255)     // surface1 — secondary buttons
 
     // Text
-    static let textBase = Color(red: 0xfa / 255, green: 0xfa / 255, blue: 0xfa / 255)    // grey-100
-    static let textMuted = Color(red: 0xae / 255, green: 0xae / 255, blue: 0xae / 255)   // grey-500
-    static let textFaint = Color(red: 0x80 / 255, green: 0x80 / 255, blue: 0x80 / 255)   // grey-600
-    static let textAccent = Color(red: 0xa2 / 255, green: 0xbc / 255, blue: 0xff / 255)  // blue-400
+    static let textBase = Color(red: 0xca / 255, green: 0xd3 / 255, blue: 0xf5 / 255)    // text
+    static let textMuted = Color(red: 0xa5 / 255, green: 0xad / 255, blue: 0xcb / 255)   // subtext0
+    static let textFaint = Color(red: 0x80 / 255, green: 0x87 / 255, blue: 0xa2 / 255)   // overlay1
+    static let textAccent = Color(red: 0x8a / 255, green: 0xad / 255, blue: 0xf4 / 255)  // blue
 
     // Borders
     static let borderMuted = Color.white.opacity(0.08)
@@ -25,29 +25,29 @@ enum Theme {
     static let overlayPressed = Color.white.opacity(0.10)
 
     // Accent
-    static let accent = Color(red: 0x3b / 255, green: 0x5c / 255, blue: 0xf6 / 255)      // blue-600
-    static let accentSoft = Color(red: 0xa2 / 255, green: 0xbc / 255, blue: 0xff / 255)
+    static let accent = Color(red: 0x8a / 255, green: 0xad / 255, blue: 0xf4 / 255)      // blue
+    static let accentSoft = Color(red: 0x7d / 255, green: 0xc4 / 255, blue: 0xe4 / 255)  // sapphire
 
     // States
-    static let success = Color(red: 0x6b / 255, green: 0xd5 / 255, blue: 0x86 / 255)     // green-500
-    static let warning = Color(red: 0xf2 / 255, green: 0xcf / 255, blue: 0x76 / 255)     // yellow-500
-    static let danger = Color(red: 0xf1 / 255, green: 0x74 / 255, blue: 0x71 / 255)      // red-500
-    static let dangerBg = Color(red: 0x46 / 255, green: 0x15 / 255, blue: 0x16 / 255)    // red-1200
+    static let success = Color(red: 0xa6 / 255, green: 0xda / 255, blue: 0x95 / 255)     // green
+    static let warning = Color(red: 0xee / 255, green: 0xd4 / 255, blue: 0x9f / 255)     // yellow
+    static let danger = Color(red: 0xed / 255, green: 0x87 / 255, blue: 0x96 / 255)      // red
+    static let dangerBg = Color(red: 0x4c / 255, green: 0x3a / 255, blue: 0x4c / 255)    // red 20% over base
 
     // Diff
-    static let diffAdd = Color(red: 0x9b / 255, green: 0xcd / 255, blue: 0x97 / 255)
+    static let diffAdd = Color(red: 0xa6 / 255, green: 0xda / 255, blue: 0x95 / 255)     // green
     static let diffDelete = danger
-    static let diffAddBg = Color(red: 0x1a / 255, green: 0x29 / 255, blue: 0x19 / 255)
-    static let diffDeleteBg = Color(red: 0x42 / 255, green: 0x12 / 255, blue: 0x0b / 255)
+    static let diffAddBg = Color(red: 0x38 / 255, green: 0x42 / 255, blue: 0x47 / 255)   // green 15% over base
+    static let diffDeleteBg = Color(red: 0x43 / 255, green: 0x33 / 255, blue: 0x45 / 255) // red 15% over base
 
     // Agent colors
     static func agentColor(_ id: String) -> Color {
         switch id {
-        case "build": return Color(red: 0x7f / 255, green: 0x9f / 255, blue: 0xfe / 255)   // blue-300
-        case "plan": return Color(red: 0xf7 / 255, green: 0x99 / 255, blue: 0xc6 / 255)    // pink-400
-        case "review": return Color(red: 0x9d / 255, green: 0xde / 255, blue: 0xa5 / 255)  // green-300
-        case "explore": return Color(red: 0xf5 / 255, green: 0xdf / 255, blue: 0xa2 / 255) // yellow-300
-        default: return Color(red: 0x9e / 255, green: 0x99 / 255, blue: 0xf7 / 255)        // purple-400
+        case "build": return Color(red: 0x8a / 255, green: 0xad / 255, blue: 0xf4 / 255)   // blue
+        case "plan": return Color(red: 0xf5 / 255, green: 0xbd / 255, blue: 0xe6 / 255)    // pink
+        case "review": return Color(red: 0xa6 / 255, green: 0xda / 255, blue: 0x95 / 255)  // green
+        case "explore": return Color(red: 0xee / 255, green: 0xd4 / 255, blue: 0x9f / 255) // yellow
+        default: return Color(red: 0xc6 / 255, green: 0xa0 / 255, blue: 0xf6 / 255)        // mauve
         }
     }
 
