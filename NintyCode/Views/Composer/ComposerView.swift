@@ -313,6 +313,12 @@ struct ComposerView: View {
             attachButton
             agentMenu
             modelMenu
+            if store.autoAccept {
+                Image(systemName: "shield.checkered")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.warning)
+                    .help("Auto-accept on (⇧⌘A)")
+            }
             Spacer()
             submitButton
         }

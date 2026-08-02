@@ -271,6 +271,11 @@ final class ChatStore {
         pendingPermission = nil
     }
 
+    /// ⇧⌘A auto-accept: every permission ask auto-replied "once" (opencode per-session toggle).
+    var autoAccept = false {
+        didSet { Task { await session.setAutoAccept(autoAccept) } }
+    }
+
     // MARK: - Undo / redo (opencode revert semantics)
 
     /// /undo: hide messages from the last user message onward + restore files to

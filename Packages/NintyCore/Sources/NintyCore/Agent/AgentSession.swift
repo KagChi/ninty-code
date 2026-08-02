@@ -166,6 +166,11 @@ public actor AgentSession {
         await permissionEngine.reply(id, reply)
     }
 
+    /// Auto-accept mode (⇧⌘A): every ask is replied "once" without UI.
+    public func setAutoAccept(_ enabled: Bool) async {
+        await permissionEngine.setAutoAccept(enabled)
+    }
+
     // MARK: - Revert (undo/redo)
 
     public var redoDepth: Int { get async { await snapshots.redoDepth } }
@@ -221,7 +226,7 @@ public actor AgentSession {
                 model: model,
                 system: systemPrompt,
                 messages: history,
-                tools: registry.definitions(excluding: agent.permissions.deniedTools)
+                tools: registry.definitions(excluding: agent.hiddenTools)
             )
 
             var assistantText = ""
@@ -357,6 +362,19 @@ public actor AgentSession {
         tool: any AgentTool, arguments: JSONValue, callID: String
     ) async -> ToolResult {
         let preview = Self.preview(for: tool.name, arguments: arguments)
+        // Plan agent: write/edit allowed for plans files only (opencode parity).
+        let effectiveAction = agent.permissions.action(for: tool.name, arguments: arguments, isPlan: agent.id == "plan")
+        if effectiveAction == .allow {
+            do {
+                if tool.name == "edit" || tool.name == "write",
+                   let path = arguments["path"]?.stringValue {
+                    await snapshots.recordOriginal(path: ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path)
+                }
+                return try await tool.execute(arguments, ctx: ToolContext(projectRoot: projectRoot, sessionID: id))
+            } catch {
+                return .error("Tool error: \(error.localizedDescription)")
+            }
+        }
         do {
             try await permissionEngine.authorize(
                 tool: tool.name, arguments: arguments, preview: preview,

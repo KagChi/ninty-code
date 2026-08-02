@@ -40,7 +40,8 @@ public struct Agent: Sendable, Equatable, Identifiable {
 
         You are in PLAN MODE: read-only analysis.
         - You may read, search, and list files freely.
-        - You may NOT create, edit, or delete files.
+        - You may NOT create, edit, or delete files — EXCEPT writing the plan
+          file itself under .opencode/plans/ (markdown only).
         - Ask before running any shell command.
         - Deliver analysis and a step-by-step plan. Do not implement.
         """,
@@ -53,6 +54,13 @@ public struct Agent: Sendable, Equatable, Identifiable {
             "*": .allow
         ])
     )
+
+    /// Tools hidden from the model for this agent. Plan keeps write/edit visible
+    /// (allowed for plan files only; enforced at permission time, opencode-style).
+    public var hiddenTools: Set<String> {
+        if id == "plan" { return ["todowrite"] }
+        return permissions.deniedTools
+    }
 
     /// Built-ins + custom agents from config. Custom rules default to build's.
     public static func all(custom: [String: AgentConfig]) -> [Agent] {

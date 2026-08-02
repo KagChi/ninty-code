@@ -25,12 +25,21 @@ struct ChatView: View {
                 if !store.todos.isEmpty {
                     TodoDock(todos: store.todos)
                 }
-                ComposerView(store: store)
+                // opencode: composer hidden while a permission blocks the session.
+                if store.pendingPermission == nil {
+                    ComposerView(store: store)
+                }
             }
             .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bgBase)
+        .background(
+            // ⇧⌘A auto-accept toggle (opencode per-session).
+            Button("") { store.autoAccept.toggle() }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .hidden()
+        )
         .alert("Error", isPresented: .constant(store.lastError != nil)) {
             Button("OK") { store.lastError = nil }
         } message: {
