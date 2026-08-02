@@ -13,7 +13,9 @@ struct NintyCodeApp: App {
                 .preferredColorScheme(.dark)
                 .onAppear { appState.bootstrap() }
         }
-        .windowToolbarStyle(.unified)
+        // opencode desktop parity: no native titlebar — custom TitlebarView with
+        // traffic lights floating over it (Electron titleBarStyle: "hidden").
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 750)
 
         Settings {
@@ -28,25 +30,37 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        // opencode v2 shell: no left sidebar — titlebar + card on bg-deep.
+        // opencode v2 shell: no left sidebar — titlebar + card on bg-deep,
+        // optional review side panel on the right (⇧⌘R).
         VStack(spacing: 0) {
             TitlebarView()
-            ZStack {
-                if appState.showHome {
-                    HomeView()
-                } else if let chat = appState.activeChat {
-                    ChatView(store: chat)
-                } else {
-                    NewSessionView()
+            HStack(spacing: 8) {
+                ZStack {
+                    if appState.showHome {
+                        HomeView()
+                    } else if let chat = appState.activeChat {
+                        ChatView(store: chat)
+                    } else {
+                        NewSessionView()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.bgBase, in: .rect(cornerRadius: 10))
+                .raisedElevation(cornerRadius: 10)
+
+                if appState.showSidePanel {
+                    SidePanelView(chat: appState.activeChat)
+                        .frame(width: 480)
+                        .frame(maxHeight: .infinity)
+                        .background(Theme.bgBase, in: .rect(cornerRadius: 10))
+                        .raisedElevation(cornerRadius: 10)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.bgBase, in: .rect(cornerRadius: 10))
-            .raisedElevation(cornerRadius: 10)
             .padding(.init(top: 0, leading: 8, bottom: 8, trailing: 8))
         }
         .background(Theme.bgDeep)
-        .toolbarBackground(.hidden, for: .windowToolbar)
+        .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
         .sheet(isPresented: Binding(
             get: { appState.showModelDialog },
             set: { appState.showModelDialog = $0 }

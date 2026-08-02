@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NintyCore
 
@@ -7,15 +8,50 @@ struct TitlebarView: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // Inset for traffic lights (hidden titlebar style — they overlay content).
+            Spacer().frame(width: 70)
             homeButton
             tabStrip
             newTabButton
             Spacer(minLength: 8)
+            updateButton
+            sidePanelButton
         }
         .padding(.horizontal, 10)
         .frame(height: 36)
         .background(Theme.bgDeep)
         .background(WindowDragView())
+    }
+
+    /// Download/update icon (v2 titlebar trailing). Opens releases page.
+    private var updateButton: some View {
+        Button {
+            NSWorkspace.shared.open(URL(string: "https://github.com/KagChi/ninty-code/releases")!)
+        } label: {
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textMuted)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Download latest release")
+    }
+
+    /// Right side panel toggle (⇧⌘R) — review/files panel.
+    private var sidePanelButton: some View {
+        Button {
+            appState.showSidePanel.toggle()
+        } label: {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 13))
+                .foregroundStyle(appState.showSidePanel ? Theme.textBase : Theme.textMuted)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("r", modifiers: [.command, .shift])
+        .help("Toggle side panel (⇧⌘R)")
     }
 
     /// Grid-plus home toggle (⌘B).
