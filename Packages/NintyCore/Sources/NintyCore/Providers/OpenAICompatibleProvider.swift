@@ -77,12 +77,11 @@ public struct OpenAICompatibleProvider: ModelProvider, Sendable {
                     )
                     var sse = SSEParser()
                     var chunks = ChatCompletionStreamParser()
-                    var lineBuffer = ""
-                    for try await byte in bytes {
+                    // bytes.lines decodes UTF-8 per line — byte-wise iteration would
+                    // split multi-byte chars and mangle them into mojibake.
+                    for try await line in bytes.lines {
                         if Task.isCancelled { break }
-                        lineBuffer.append(Character(UnicodeScalar(byte)))
-                        guard byte == UInt8(ascii: "\n") else { continue }
-                        for event in sse.feed(lineBuffer) {
+                        for event in sse.feed(line + "\n") {
                             let result = chunks.handle(data: event.data)
                             result.events.forEach { continuation.yield($0) }
                             if result.done {
@@ -90,7 +89,6 @@ public struct OpenAICompatibleProvider: ModelProvider, Sendable {
                                 return
                             }
                         }
-                        lineBuffer = ""
                     }
                     for event in sse.finish() {
                         let result = chunks.handle(data: event.data)

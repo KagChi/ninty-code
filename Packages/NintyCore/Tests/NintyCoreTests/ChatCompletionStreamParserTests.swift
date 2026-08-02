@@ -86,4 +86,48 @@ struct ChatCompletionStreamParserTests {
         let (_, done) = parser.handle(data: "[DONE]")
         #expect(done)
     }
+
+    @Test("multi-byte UTF-8 survives line-wise decode (no mojibake)")
+    func multiByteUTF8() throws {
+        // Em-dash (E2 80 94) + CJK + emoji inside streamed content. Feeding the
+        // payload through UTF-8 line decode must reproduce the exact string —
+        // the old byte-wise Character(UnicodeScalar(byte)) path mangled these.
+        let payload = "empty — no commits: 日本語 🚀"
+        let chunk = #"{"choices":[{"index":0,"delta":{"content":"# +
+            payload.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\t", with: "\\t")
+            + #""}}]}"#
+        // Simulate the stream loop: UTF-8 bytes → line decode → SSE → chunk parser.
+        let line = "data: \(chunk)\n"
+        var sse = SSEParser()
+        var chunks = ChatCompletionStreamParser()
+        var events: [StreamEvent] = []
+        for event in sse.feed(line) + sse.finish() {
+            events.append(contentsOf: chunks.handle(data: event.data).events)
+        }
+        #expect(events.contains(.textDelta(payload)))
+    }
+
+    @Test("UTF-8 split across network byte chunks reassembles correctly")
+    func splitMultiByte() {
+        // URLSession.AsyncBytes.lines guarantees this, but pin the contract:
+        // decoding only at line boundaries never produces U+FFFD replacements.
+        let text = "a — b"
+        let bytes = Array(text.utf8)
+        // Split inside the em-dash sequence (after first byte E2).
+        let splitPoint = bytes.firstIndex(of: 0xE2)! + 1
+        let part1 = bytes[..<splitPoint]
+        let part2 = bytes[splitPoint...]
+        // Wrong way (old bug): byte-wise scalar append.
+        var mangled = ""
+        for b in part1 + part2 { mangled.append(Character(UnicodeScalar(b))) }
+        #expect(mangled != text)
+        // Right way: buffer bytes, decode once.
+        var buffer: [UInt8] = []
+        buffer.append(contentsOf: part1)
+        buffer.append(contentsOf: part2)
+        #expect(String(decoding: buffer, as: UTF8.self) == text)
+    }
 }

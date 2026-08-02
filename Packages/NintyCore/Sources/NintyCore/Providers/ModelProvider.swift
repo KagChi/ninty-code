@@ -64,6 +64,22 @@ public enum ProviderError: Error, Sendable, Equatable {
     case network(String)
 }
 
+extension ProviderError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .http(let status, let body):
+            let trimmed = body.prefix(300)
+            return trimmed.isEmpty ? "Provider returned HTTP \(status)" : "Provider returned HTTP \(status): \(trimmed)"
+        case .invalidResponse(let detail):
+            return "Invalid provider response: \(detail.prefix(300))"
+        case .missingAPIKey(let provider):
+            return "No API key configured for provider \"\(provider)\""
+        case .network(let detail):
+            return "Network error: \(detail.prefix(300))"
+        }
+    }
+}
+
 public protocol ModelProvider: Sendable {
     var id: String { get }
     func models() async throws -> [ModelInfo]
