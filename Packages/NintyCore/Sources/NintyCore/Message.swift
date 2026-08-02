@@ -10,10 +10,12 @@ public struct Message: Codable, Sendable, Equatable {
 
     public enum Part: Codable, Sendable, Equatable {
         case text(String)
+        /// Inline image as a data URL (data:<mime>;base64,...).
+        case image(dataURL: String)
         case toolCall(id: String, name: String, arguments: JSONValue)
         case toolResult(id: String, name: String, output: String, isError: Bool)
 
-        enum CodingKeys: String, CodingKey { case type, text, id, name, arguments, output, isError }
+        enum CodingKeys: String, CodingKey { case type, text, dataURL, id, name, arguments, output, isError }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -21,6 +23,8 @@ public struct Message: Codable, Sendable, Equatable {
             switch type {
             case "text":
                 self = .text(try container.decode(String.self, forKey: .text))
+            case "image":
+                self = .image(dataURL: try container.decode(String.self, forKey: .dataURL))
             case "toolCall":
                 self = .toolCall(
                     id: try container.decode(String.self, forKey: .id),
@@ -45,6 +49,9 @@ public struct Message: Codable, Sendable, Equatable {
             case .text(let text):
                 try container.encode("text", forKey: .type)
                 try container.encode(text, forKey: .text)
+            case .image(let dataURL):
+                try container.encode("image", forKey: .type)
+                try container.encode(dataURL, forKey: .dataURL)
             case .toolCall(let id, let name, let arguments):
                 try container.encode("toolCall", forKey: .type)
                 try container.encode(id, forKey: .id)
@@ -67,6 +74,10 @@ public struct Message: Codable, Sendable, Equatable {
 
     public static func user(_ text: String) -> Message {
         Message(role: .user, parts: [.text(text)])
+    }
+
+    public static func user(_ text: String, images: [String]) -> Message {
+        Message(role: .user, parts: [.text(text)] + images.map { .image(dataURL: $0) })
     }
 
     public static func assistant(_ text: String) -> Message {

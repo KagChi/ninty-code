@@ -114,13 +114,13 @@ public actor AgentSession {
 
     /// Start a user turn, or steer: if a turn is running, queue and return.
     /// opencode default is "steer" — the queued message is sent when the turn ends.
-    public func send(_ text: String) {
+    public func send(_ text: String, images: [String] = []) {
         if busy {
             followups.append(text)
             continuation.yield(.queueChanged(followups))
             return
         }
-        startTurn(text)
+        startTurn(text, images: images)
     }
 
     /// Pull a queued follow-up back out (user edited it into the composer).
@@ -195,18 +195,18 @@ public actor AgentSession {
         continuation.yield(.revertStateChanged(restoredFiles: [], redoDepth: 0))
     }
 
-    private func startTurn(_ text: String) {
+    private func startTurn(_ text: String, images: [String] = []) {
         busy = true
         turnEpoch += 1
         let epoch = turnEpoch
-        currentTask = Task { await self.runTurn(text, epoch: epoch) }
+        currentTask = Task { await self.runTurn(text, images: images, epoch: epoch) }
     }
 
     // MARK: - Turn loop
 
-    private func runTurn(_ text: String, epoch: Int) async {
+    private func runTurn(_ text: String, images: [String] = [], epoch: Int) async {
         let isFirstUserMessage = !history.contains { $0.role == .user }
-        let userMessage = Message.user(text)
+        let userMessage = images.isEmpty ? Message.user(text) : Message.user(text, images: images)
         history.append(userMessage)
         try? await store.append(userMessage, sessionID: id)
         await snapshots.beginTurn()

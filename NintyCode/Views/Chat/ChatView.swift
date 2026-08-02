@@ -36,6 +36,13 @@ struct ChatView: View {
         } message: {
             Text(store.lastError ?? "")
         }
+        .sheet(isPresented: Binding(
+            get: { store.showForkDialog },
+            set: { store.showForkDialog = $0 }
+        )) {
+            ForkDialog(store: store)
+                .environment(appState)
+        }
     }
 
     private var messageTimeline: some View {
@@ -281,6 +288,67 @@ struct RevertDock: View {
         .glassEffect(.regular.tint(Theme.layer01.opacity(0.5)), in: .rect(cornerRadius: Theme.radiusXL))
         .padding(.horizontal, 12)
         .frame(maxWidth: 800)
+    }
+}
+
+/// opencode /fork: user messages (newest first, 200-char preview) → fork → navigate.
+struct ForkDialog: View {
+    let store: ChatStore
+    @Environment(AppState.self) private var appState
+
+    private var userMessages: [(index: Int, text: String)] {
+        store.messages.enumerated().compactMap { index, message in
+            message.role == .user && !message.isMarker ? (index, message.text) : nil
+        }.reversed()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Fork from message")
+                .font(Theme.sansMedium)
+                .foregroundStyle(Theme.textBase)
+                .padding(16)
+            Divider().overlay(Theme.borderMuted)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(userMessages, id: \.index) { item in
+                        Button {
+                            fork(from: item.index)
+                        } label: {
+                            Text(String(item.text.prefix(200)))
+                                .font(Theme.small)
+                                .foregroundStyle(Theme.textBase)
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .backgroundHover
+                    }
+                }
+                .padding(8)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { store.showForkDialog = false }
+                    .buttonStyle(DockButtonStyle(variant: .ghost))
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(12)
+        }
+        .frame(width: 480, height: 400)
+        .background(Theme.bgBase)
+    }
+
+    private func fork(from index: Int) {
+        store.showForkDialog = false
+        Task {
+            guard let (newID, prompt) = await store.fork(beforeUserMessageAt: index) else { return }
+            appState.openChat(newID)
+            appState.activeChat?.restoredDraft = prompt
+        }
     }
 }
 

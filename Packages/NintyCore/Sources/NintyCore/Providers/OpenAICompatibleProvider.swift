@@ -119,7 +119,21 @@ public struct OpenAICompatibleProvider: ModelProvider, Sendable {
                 messages.append(["role": "system", "content": .string(text)])
             case .user:
                 let text = message.parts.compactMap { if case .text(let t) = $0 { t } else { nil } }.joined(separator: "\n")
-                messages.append(["role": "user", "content": .string(text)])
+                let images = message.parts.compactMap { if case .image(let dataURL) = $0 { dataURL } else { nil } }
+                if images.isEmpty {
+                    messages.append(["role": "user", "content": .string(text)])
+                } else {
+                    // Multipart content: text + image_url entries (OpenAI vision format).
+                    var content: [JSONValue] = []
+                    if !text.isEmpty { content.append(["type": "text", "text": .string(text)]) }
+                    for dataURL in images {
+                        content.append([
+                            "type": "image_url",
+                            "image_url": ["url": .string(dataURL)] as JSONValue
+                        ])
+                    }
+                    messages.append(["role": "user", "content": .array(content)])
+                }
             case .assistant:
                 let text = message.parts.compactMap { if case .text(let t) = $0 { t } else { nil } }.joined(separator: "\n")
                 let toolCalls: [JSONValue] = message.parts.compactMap {

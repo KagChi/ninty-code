@@ -179,6 +179,27 @@ public actor SessionStore {
         saveIndex()
     }
 
+    /// Fork: copy meta + first `keepCount` messages into a new session id (opencode /fork).
+    @discardableResult
+    public func fork(id sourceID: String, keepingMessages keepCount: Int, newID: String) throws -> SessionMeta? {
+        let (meta, messages) = try readAll(id: sourceID)
+        guard let meta else { return nil }
+        let now = Date()
+        let forked = SessionMeta(
+            id: newID, title: meta.title + " (fork)", agentID: meta.agentID, model: meta.model,
+            created: now, updated: now
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var lines: [Data] = [try encoder.encode(SessionRecord.meta(forked))]
+        for message in messages.prefix(keepCount) {
+            lines.append(try encoder.encode(SessionRecord.message(message)))
+        }
+        let data = lines.map { $0 + Data("\n".utf8) }.reduce(Data(), +)
+        try data.write(to: fileURL(id: newID), options: .atomic)
+        setIndexMeta(forked)
+        return forked
+    }
+
     /// Permanently drop all messages after the first `keepCount` (opencode cleanup on new prompt after revert).
     public func truncate(keepingMessages keepCount: Int, sessionID: String) throws {
         let (meta, messages) = try readAll(id: sessionID)

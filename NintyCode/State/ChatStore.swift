@@ -22,6 +22,8 @@ struct DisplayMessage: Identifiable, Equatable {
     var timestamp: Date = Date()
     /// Timeline marker (e.g. "Compaction") — rendered as a divider, not a bubble.
     var isMarker = false
+    /// Attached images (data URLs).
+    var images: [String] = []
 }
 
 // MARK: - ChatStore
@@ -41,6 +43,7 @@ final class ChatStore {
     var revertedMessages: [DisplayMessage] = []
 
     let sessionID: String
+    let projectRoot: URL
     private(set) var agent: Agent
     private(set) var model: String
 
@@ -65,6 +68,7 @@ final class ChatStore {
         self.sessionID = sessionID
         self.agent = agent
         self.model = model
+        self.projectRoot = projectRoot
         self.onChange = onChange
 
         let todoStore = TodoStore()
@@ -111,6 +115,8 @@ final class ChatStore {
             switch part {
             case .text(let text):
                 display.text += text
+            case .image(let dataURL):
+                display.images.append(dataURL)
             case .toolCall(let id, let name, let arguments):
                 display.toolCalls.append(ToolCallDisplay(id: id, name: name, arguments: arguments, status: .done))
             case .toolResult(let id, _, let output, let isError):
@@ -211,9 +217,9 @@ final class ChatStore {
     /// opencode steer semantics: sending while streaming queues the message
     /// (server-side in the session); the UI mirrors the queue as a dock.
     /// Sending while reverted permanently deletes the reverted messages.
-    func send(_ text: String) {
+    func send(_ text: String, images: [String] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty || !images.isEmpty else { return }
         lastError = nil
         if !revertedMessages.isEmpty {
             revertedMessages = []
@@ -222,10 +228,10 @@ final class ChatStore {
             Task { await session.commitRevertedState(keepingMessages: keep) }
         }
         if streaming {
-            Task { await session.send(trimmed) } // session enqueues
+            Task { await session.send(trimmed, images: images) } // session enqueues
             return
         }
-        messages.append(DisplayMessage(role: .user, text: trimmed))
+        messages.append(DisplayMessage(role: .user, text: trimmed, images: images))
         streaming = true
         // First message creates the on-disk meta so the session lists in the sidebar.
         if !metaCreated {
@@ -236,11 +242,13 @@ final class ChatStore {
                 onChange()
             }
         }
-        Task { await session.send(trimmed) }
+        Task { await session.send(trimmed, images: images) }
     }
 
     /// Set when a queued follow-up is pulled back for editing; composer consumes + clears it.
     var restoredDraft: String?
+    /// /fork dialog visibility.
+    var showForkDialog = false
 
     /// Pull a queued follow-up back into the composer for editing.
     func editFollowup(at index: Int) {
@@ -326,5 +334,60 @@ final class ChatStore {
         guard let request = pendingPermission else { return }
         pendingPermission = nil
         Task { await session.replyPermission(request.id, reply) }
+    }
+
+    // MARK: - Slash commands
+
+    /// /compact — summarize context with the current model.
+    func compact() {
+        Task { await session.compactNow() }
+    }
+
+    /// Shell mode submit: run via BashTool, output as a tool-style message.
+    func runShell(_ command: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        messages.append(DisplayMessage(role: .user, text: trimmed))
+        streaming = true
+        if !metaCreated {
+            metaCreated = true
+            Task {
+                try? await store.create(
+                    id: sessionID, title: "$ \(trimmed.prefix(55))",
+                    agentID: agent.id, model: model
+                )
+                onChange()
+            }
+        }
+        Task {
+            let callID = UUID().uuidString
+            let display = ToolCallDisplay(id: callID, name: "bash",
+                                          arguments: .object(["command": .string(trimmed)]))
+            messages.append(DisplayMessage(role: .assistant, toolCalls: [display]))
+            do {
+                let result = try await BashTool().execute(
+                    ["command": .string(trimmed)],
+                    ctx: ToolContext(projectRoot: projectRoot, sessionID: sessionID)
+                )
+                updateToolCall(id: callID, name: "bash", output: result.output, isError: result.isError)
+            } catch {
+                updateToolCall(id: callID, name: "bash", output: error.localizedDescription, isError: true)
+            }
+            streaming = false
+        }
+    }
+
+    /// /fork: new session id with history up to (excluding) the given user message index.
+    /// Returns (newSessionID, promptToRestore).
+    func fork(beforeUserMessageAt displayIndex: Int) async -> (String, String)? {
+        guard messages.indices.contains(displayIndex),
+              messages[displayIndex].role == .user else { return nil }
+        let keep = messages[..<displayIndex].filter { !$0.isMarker }.count
+        let prompt = messages[displayIndex].text
+        let newID = UUID().uuidString
+        guard let _ = try? await store.fork(id: sessionID, keepingMessages: keep, newID: newID) else {
+            return nil
+        }
+        return (newID, prompt)
     }
 }

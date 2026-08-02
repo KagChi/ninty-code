@@ -31,6 +31,9 @@ final class AppState {
     // Errors
     var lastError: String?
 
+    // Dialogs
+    var showModelDialog = false
+
     private let configLoader = ConfigLoader()
     private var baseRegistry: ProviderRegistry?
     private var mcpManager: MCPManager?
@@ -156,6 +159,16 @@ final class AppState {
         selectedModel = reference
         guard let (_, modelID) = ProviderRegistry.split(reference) else { return }
         activeChat?.setModel(modelID)
+    }
+
+    /// ⌘. / /agent — cycle to next agent (wrap-around, opencode order = list order).
+    func cycleAgent(reverse: Bool = false) {
+        guard !agents.isEmpty else { return }
+        let current = agents.firstIndex { $0.id == selectedAgentID } ?? 0
+        let next = reverse
+            ? (current - 1 + agents.count) % agents.count
+            : (current + 1) % agents.count
+        selectAgent(agents[next])
     }
 
     private func makeChat(sessionID: String) -> ChatStore? {
