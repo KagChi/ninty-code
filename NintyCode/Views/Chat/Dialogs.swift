@@ -198,3 +198,40 @@ struct CommandPalette: View {
         item.action(appState)
     }
 }
+
+/// opencode-style modal: dimmed backdrop, click-outside + Esc dismiss.
+/// Sheets on macOS don't dismiss on outside click, so dialogs render as overlays.
+private struct ModalOverlay<Content: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    @ViewBuilder let content: Content
+
+    func body(content base: Self.Content) -> some View {
+        ZStack {
+            base
+            if isPresented {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .onTapGesture { isPresented = false }
+                    .transition(.opacity)
+                content
+                    .transition(.opacity)
+                    .background(
+                        // Esc still closes, like the sheets did.
+                        Button("") { isPresented = false }
+                            .keyboardShortcut(.cancelAction)
+                            .hidden()
+                    )
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: isPresented)
+    }
+}
+
+extension View {
+    func modalOverlay<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        modifier(ModalOverlay(isPresented: isPresented, content: content))
+    }
+}

@@ -51,8 +51,12 @@ struct ContentView: View {
                 .raisedElevation(cornerRadius: 10)
 
                 if appState.showSidePanel {
+                    SidePanelResizeHandle(width: Binding(
+                        get: { appState.sidePanelWidth },
+                        set: { appState.sidePanelWidth = $0 }
+                    ))
                     SidePanelView(chat: appState.activeChat)
-                        .frame(width: 480)
+                        .frame(width: appState.sidePanelWidth)
                         .frame(maxHeight: .infinity)
                         .background(Theme.bgBase, in: .rect(cornerRadius: 10))
                         .raisedElevation(cornerRadius: 10)
@@ -64,25 +68,59 @@ struct ContentView: View {
         .background(Theme.bgDeep)
         .ignoresSafeArea(.all, edges: .top)
         .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
-        .sheet(isPresented: Binding(
+        .modalOverlay(isPresented: Binding(
             get: { appState.showModelDialog },
             set: { appState.showModelDialog = $0 }
         )) {
             ModelDialog().environment(appState)
         }
-        .sheet(isPresented: Binding(
+        .modalOverlay(isPresented: Binding(
             get: { appState.showCommandPalette },
             set: { appState.showCommandPalette = $0 }
         )) {
             CommandPalette().environment(appState)
         }
-        .sheet(isPresented: Binding(
+        .modalOverlay(isPresented: Binding(
             get: { appState.showSettings },
             set: { appState.showSettings = $0 }
         )) {
             SettingsDialog().environment(appState)
         }
         .background(GlobalKeybinds())
+    }
+}
+
+/// Drag handle on the side panel's leading edge — drag to resize.
+private struct SidePanelResizeHandle: View {
+    @Binding var width: CGFloat
+    @State private var dragStart: CGFloat?
+
+    var body: some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let start = dragStart ?? width
+                        dragStart = start
+                        // Handle sits on the panel's left edge: dragging left widens.
+                        width = (start - value.translation.width)
+                            .clamped(to: AppState.sidePanelWidthRange)
+                    }
+                    .onEnded { _ in dragStart = nil }
+            )
+    }
+}
+
+private extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }
 

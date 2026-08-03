@@ -41,6 +41,14 @@ final class AppState {
     var showCommandPalette = false
     /// Right side panel (review/files) — ⇧⌘R, opencode v2 titlebar toggle.
     var showSidePanel = false
+    /// Draggable side panel width (persisted).
+    var sidePanelWidth: CGFloat = {
+        let saved = UserDefaults.standard.double(forKey: "sidePanelWidth")
+        return saved > 0 ? saved : 480
+    }() {
+        didSet { UserDefaults.standard.set(Double(sidePanelWidth), forKey: "sidePanelWidth") }
+    }
+    static let sidePanelWidthRange: ClosedRange<CGFloat> = 360...960
     /// In-app settings dialog (opencode dialog-settings — no native Settings window).
     var showSettings = false
     var settingsSection: SettingsSection = .general
