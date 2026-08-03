@@ -27,7 +27,7 @@ struct ChatCompletionStreamParserTests {
         #expect(events.contains(.textDelta("Hello")))
         #expect(events.contains(.textDelta(", world")))
         #expect(events.contains(.textDelta("!")))
-        #expect(events.contains(.usage(input: 12, output: 5)))
+        #expect(events.contains(.usage(TokenUsage(input: 12, output: 5))))
         #expect(events.contains(.finish(reason: .stop)))
     }
 
@@ -40,7 +40,7 @@ struct ChatCompletionStreamParserTests {
         #expect(events.contains(.toolCallDelta(id: "call_abc123", argumentsFragment: " \"README.md\"}")))
         #expect(events.contains(.toolCallEnd(id: "call_abc123")))
         #expect(events.contains(.finish(reason: .toolCalls)))
-        #expect(events.contains(.usage(input: 50, output: 17)))
+        #expect(events.contains(.usage(TokenUsage(input: 50, output: 17))))
     }
 
     @Test("parallel tool calls tracked independently")

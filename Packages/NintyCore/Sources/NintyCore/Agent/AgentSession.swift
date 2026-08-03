@@ -53,6 +53,8 @@ public actor AgentSession {
 
     private var history: [Message]
     private var lastInputTokens = 0
+    /// Last assistant turn's full token accounting (context tab).
+    public private(set) var lastUsage: TokenUsage?
     private var currentTask: Task<Void, Never>?
     /// Steer queue: messages sent while a turn is running, drained between turns.
     private var followups: [String] = []
@@ -193,6 +195,9 @@ public actor AgentSession {
 
     public var redoDepth: Int { get async { await snapshots.redoDepth } }
 
+    /// Current system prompt (context tab "System Prompt" card).
+    public var currentSystemPrompt: String { systemPrompt }
+
     /// /undo: restore files changed during the last user turn. Caller hides the messages.
     public func revert() async -> [String] {
         if busy { abort() }
@@ -252,7 +257,7 @@ public actor AgentSession {
             var toolCalls: [String: (name: String, arguments: String)] = [:]
             var completedCalls: [String] = []
             var finishReason: FinishReason = .stop
-            var usage: (input: Int, output: Int)?
+            var usage: TokenUsage?
             var wasRetrying = false
 
             let stream = provider.stream(request)
@@ -281,9 +286,10 @@ public actor AgentSession {
                         toolCalls[id]?.arguments += fragment
                     case .toolCallEnd(let id):
                         if !completedCalls.contains(id) { completedCalls.append(id) }
-                    case .usage(let input, let output):
-                        usage = (input, output)
-                        lastInputTokens = input
+                    case .usage(let tokenUsage):
+                        usage = tokenUsage
+                        lastInputTokens = tokenUsage.input
+                        lastUsage = tokenUsage
                     case .finish(let reason):
                         finishReason = reason
                     }

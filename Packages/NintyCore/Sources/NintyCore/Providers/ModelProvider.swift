@@ -51,7 +51,7 @@ public enum StreamEvent: Sendable, Equatable {
     case toolCallStart(id: String, name: String)
     case toolCallDelta(id: String, argumentsFragment: String)
     case toolCallEnd(id: String)
-    case usage(input: Int, output: Int)
+    case usage(TokenUsage)
     case finish(reason: FinishReason)
     /// HTTP retry in progress (attempt number, seconds until next try).
     case retrying(attempt: Int, delay: Int)
@@ -78,6 +78,25 @@ extension ProviderError: LocalizedError {
             return "Network error: \(detail.prefix(300))"
         }
     }
+}
+
+/// Token accounting for one assistant turn (opencode msg.tokens shape).
+public struct TokenUsage: Sendable, Equatable {
+    public var input: Int
+    public var output: Int
+    public var reasoning: Int
+    public var cacheRead: Int
+    public var cacheWrite: Int
+
+    public init(input: Int = 0, output: Int = 0, reasoning: Int = 0, cacheRead: Int = 0, cacheWrite: Int = 0) {
+        self.input = input
+        self.output = output
+        self.reasoning = reasoning
+        self.cacheRead = cacheRead
+        self.cacheWrite = cacheWrite
+    }
+
+    public var total: Int { input + output + reasoning + cacheRead + cacheWrite }
 }
 
 public protocol ModelProvider: Sendable {

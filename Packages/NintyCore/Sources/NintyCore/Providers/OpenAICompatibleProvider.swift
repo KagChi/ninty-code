@@ -227,8 +227,14 @@ struct ChatCompletionStreamParser {
             return ([], false)
         }
         var events: [StreamEvent] = []
-        if let usage = chunk.usage, let input = usage.promptTokens, let output = usage.completionTokens {
-            events.append(.usage(input: input, output: output))
+        if let usage = chunk.usage, let input = usage.promptTokens {
+            events.append(.usage(TokenUsage(
+                input: input,
+                output: usage.completionTokens ?? 0,
+                reasoning: usage.completionTokensDetails?.reasoningTokens ?? 0,
+                cacheRead: usage.promptTokensDetails?.cachedTokens ?? 0,
+                cacheWrite: usage.cacheCreationInputTokens ?? 0
+            )))
         }
         guard let choice = chunk.choices?.first else { return (events, false) }
         if let content = choice.delta?.content, !content.isEmpty {
@@ -313,12 +319,26 @@ struct ChatCompletionChunk: Decodable {
         }
     }
     struct Usage: Decodable {
+        struct CompletionDetails: Decodable {
+            var reasoningTokens: Int?
+            enum CodingKeys: String, CodingKey { case reasoningTokens = "reasoning_tokens" }
+        }
+        struct PromptDetails: Decodable {
+            var cachedTokens: Int?
+            enum CodingKeys: String, CodingKey { case cachedTokens = "cached_tokens" }
+        }
         var promptTokens: Int?
         var completionTokens: Int?
+        var completionTokensDetails: CompletionDetails?
+        var promptTokensDetails: PromptDetails?
+        var cacheCreationInputTokens: Int?
 
         enum CodingKeys: String, CodingKey {
             case promptTokens = "prompt_tokens"
             case completionTokens = "completion_tokens"
+            case completionTokensDetails = "completion_tokens_details"
+            case promptTokensDetails = "prompt_tokens_details"
+            case cacheCreationInputTokens = "cache_creation_input_tokens"
         }
     }
     var choices: [Choice]?

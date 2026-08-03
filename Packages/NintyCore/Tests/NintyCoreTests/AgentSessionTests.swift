@@ -139,7 +139,7 @@ struct AgentSessionTests {
     func textTurn() async throws {
         let (session, _, store, collector) = try makeSession(scripts: [[
             .textDelta("Hello"), .textDelta(" back"),
-            .usage(input: 10, output: 4), .finish(reason: .stop)
+            .usage(TokenUsage(input: 10, output: 4)), .finish(reason: .stop)
         ]])
         _ = try await store.create(id: session.id, title: "t", agentID: "build", model: "m")
         await session.send("hi")
@@ -162,7 +162,7 @@ struct AgentSessionTests {
         let (session, provider, store, collector) = try makeSession(scripts: [
             [.toolCallStart(id: "c1", name: "echo"), .toolCallDelta(id: "c1", argumentsFragment: args),
              .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
-            [.textDelta("Used echo."), .usage(input: 30, output: 8), .finish(reason: .stop)]
+            [.textDelta("Used echo."), .usage(TokenUsage(input: 30, output: 8)), .finish(reason: .stop)]
         ])
         _ = try await store.create(id: session.id, title: "t", agentID: "build", model: "m")
         await session.send("use echo")

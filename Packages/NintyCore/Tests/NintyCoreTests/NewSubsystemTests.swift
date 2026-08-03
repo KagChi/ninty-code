@@ -290,7 +290,7 @@ actor SlowMockProvider: ModelProvider {
                 await self.record(prompt)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 continuation.yield(.textDelta("reply"))
-                continuation.yield(.usage(input: 10, output: 5))
+                continuation.yield(.usage(TokenUsage(input: 10, output: 5)))
                 continuation.yield(.finish(reason: .stop))
                 continuation.finish()
             }
