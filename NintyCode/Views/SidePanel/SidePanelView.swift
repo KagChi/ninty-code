@@ -1,12 +1,15 @@
 import SwiftUI
 import NintyCore
 
-/// opencode v2 review side panel: file list sidebar + diff preview.
+/// opencode v2 side panel: "Files Changed" review tab + "Context" tab.
 /// "Changes" mode = working tree vs HEAD (git subprocess via GitReview).
 struct SidePanelView: View {
     @Environment(AppState.self) private var appState
     let chat: ChatStore?
 
+    enum PanelTab { case files, context }
+
+    @State private var tab: PanelTab = .files
     @State private var changes: [FileChange] = []
     @State private var selectedPath: String?
     @State private var diffText = ""
@@ -30,22 +33,16 @@ struct SidePanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            tabBar
             Divider().overlay(Theme.borderBase)
-            if !isRepo {
-                emptyState(icon: "folder.badge.questionmark", text: "Not a git repository")
-            } else if loading && changes.isEmpty {
-                Spacer()
-                ProgressView().controlSize(.small)
-                Spacer()
-            } else if changes.isEmpty {
-                emptyState(icon: "checkmark.circle", text: "No changes")
-            } else {
-                HSplitView {
-                    fileList
-                        .frame(minWidth: 170, idealWidth: 200, maxWidth: 260)
-                    diffPreview
-                        .frame(minWidth: 240)
+            switch tab {
+            case .files:
+                filesContent
+            case .context:
+                if let chat {
+                    ContextTabView(chat: chat)
+                } else {
+                    emptyState(icon: "bubble.left", text: "No active session")
                 }
             }
         }
@@ -61,29 +58,28 @@ struct SidePanelView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Tab bar (opencode panel strip: "Files Changed N" | "Context")
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            Text("Review")
-                .font(Theme.smallMedium)
-                .foregroundStyle(Theme.textBase)
-            if !changes.isEmpty {
-                DiffChangesText(adds: totalAdds, deletes: totalDels)
-            }
+    private var tabBar: some View {
+        HStack(spacing: 6) {
+            tabPill(title: changes.isEmpty ? "Files Changed" : "Files Changed \(changes.count)",
+                    icon: "doc.on.doc", active: tab == .files) { tab = .files }
+            tabPill(title: "Context", icon: "circle.lefthalf.filled", active: tab == .context) { tab = .context }
             Spacer()
-            Button {
-                refreshTask?.cancel()
-                refreshTask = Task { await reload() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.textMuted)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+            if tab == .files {
+                Button {
+                    refreshTask?.cancel()
+                    refreshTask = Task { await reload() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textMuted)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Refresh")
             }
-            .buttonStyle(.plain)
-            .help("Refresh")
             Button {
                 appState.showSidePanel = false
             } label: {
@@ -98,6 +94,46 @@ struct SidePanelView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 34)
+    }
+
+    private func tabPill(title: String, icon: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                    .foregroundStyle(active ? Theme.textBase : Theme.textFaint)
+                Text(title)
+                    .font(Theme.smallMedium)
+                    .foregroundStyle(active ? Theme.textBase : Theme.textMuted)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(active ? Theme.overlayPressed : .clear, in: .rect(cornerRadius: Theme.radiusSmall))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Files tab
+
+    @ViewBuilder
+    private var filesContent: some View {
+        if !isRepo {
+            emptyState(icon: "folder.badge.questionmark", text: "Not a git repository")
+        } else if loading && changes.isEmpty {
+            Spacer()
+            ProgressView().controlSize(.small)
+            Spacer()
+        } else if changes.isEmpty {
+            emptyState(icon: "checkmark.circle", text: "No changes")
+        } else {
+            HSplitView {
+                fileList
+                    .frame(minWidth: 170, idealWidth: 200, maxWidth: 260)
+                diffPreview
+                    .frame(minWidth: 240)
+            }
+        }
     }
 
     // MARK: - File list
