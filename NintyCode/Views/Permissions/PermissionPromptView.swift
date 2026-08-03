@@ -48,11 +48,9 @@ struct PermissionDock: View {
         if request.tool == "edit",
            let oldString = request.arguments["oldString"]?.stringValue,
            let newString = request.arguments["newString"]?.stringValue {
-            DiffView(diff: (
-                path: request.arguments["path"]?.stringValue ?? "",
-                removed: oldString.components(separatedBy: .newlines),
-                added: newString.components(separatedBy: .newlines)
-            ))
+            InlineDiffView(lines: LineDiff.diff(old: oldString, new: newString))
+                .background(Theme.bgDeep, in: .rect(cornerRadius: Theme.radiusSmall))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.borderBase, lineWidth: 0.5))
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(request.preview)
