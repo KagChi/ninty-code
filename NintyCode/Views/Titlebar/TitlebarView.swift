@@ -5,11 +5,15 @@ import NintyCore
 /// opencode v2 titlebar: 36px, bg-deep, home toggle + tab strip + new-tab + review toggle.
 struct TitlebarView: View {
     @Environment(AppState.self) private var appState
+    @State private var isFullScreen = false
+
+    /// Traffic lights occupy ~68px; they vanish in fullscreen (menu-bar hover
+    /// reveals them), so the inset collapses and home follows — opencode parity.
+    private var leadingInset: CGFloat { isFullScreen ? 0 : 70 }
 
     var body: some View {
         HStack(spacing: 6) {
-            // Inset for traffic lights (hidden titlebar style — they overlay content).
-            Spacer().frame(width: 70)
+            Spacer().frame(width: leadingInset)
             homeButton
             tabStrip
             newTabButton
@@ -17,10 +21,14 @@ struct TitlebarView: View {
             updateButton
             sidePanelButton
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 8)
+        .padding(.trailing, 10)
         .frame(height: 36)
         .background(Theme.bgDeep)
         .background(WindowDragView())
+        .background(FullscreenObserver(isFullScreen: $isFullScreen))
+        .background(TrafficLightAligner())
+        .animation(.easeInOut(duration: 0.15), value: isFullScreen)
     }
 
     /// Download/update icon (v2 titlebar trailing). Opens releases page.
@@ -167,6 +175,114 @@ struct TabItem: View {
         .contentShape(Rectangle())
         .onTapGesture { appState.activateTab(chat); appState.showHome = false }
         .onHover { hovered = $0 }
+    }
+}
+
+/// Vertically centers traffic-light buttons on the 36px titlebar (native spot
+/// centers on the old 28px bar — ~4px high). Reentrancy-guarded: frame writes
+/// can retrigger layout, so a pass in flight swallows nested notifications.
+struct TrafficLightAligner: NSViewRepresentable {
+    func makeNSView(context: Context) -> TrafficLightAlignerView {
+        TrafficLightAlignerView()
+    }
+    func updateNSView(_ nsView: TrafficLightAlignerView, context: Context) {}
+}
+
+final class TrafficLightAlignerView: NSView {
+    /// Midpoint of the custom titlebar from the window's top edge.
+    private let barMidY: CGFloat = 18
+    private var observers: [NSObjectProtocol] = []
+    private var isAligning = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        let align = { [weak self] in
+            DispatchQueue.main.async { self?.align() }
+        }
+        observers = [
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: window, queue: .main
+            ) { _ in align() },
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+            ) { _ in align() },
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+            ) { _ in align() },
+        ]
+        align()
+    }
+
+    private func align() {
+        guard !isAligning, let window else { return }
+        isAligning = true
+        defer { isAligning = false }
+        // Window coords: y=0 at bottom. Target center = barMidY below the top.
+        let targetCenterY = window.frame.height - barMidY
+        for type: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type),
+                  let container = button.superview else { continue }
+            let centerInWindow = container.convert(
+                NSPoint(x: 0, y: button.frame.midY), to: nil
+            ).y
+            let delta = targetCenterY - centerInWindow
+            guard abs(delta) > 0.5 else { continue }
+            // NSView y grows up unless flipped — match the container's axis.
+            button.frame.origin.y += container.isFlipped ? -delta : delta
+        }
+    }
+
+    @MainActor
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+}
+
+/// Tracks fullscreen state of the hosting window (traffic lights hide in
+/// fullscreen — titlebar inset adapts). No window mutation, notifications only.
+struct FullscreenObserver: NSViewRepresentable {
+    @Binding var isFullScreen: Bool
+
+    func makeNSView(context: Context) -> FullscreenObserverView {
+        let view = FullscreenObserverView()
+        view.onChange = { isFullScreen = $0 }
+        return view
+    }
+    func updateNSView(_ nsView: FullscreenObserverView, context: Context) {
+        nsView.onChange = { isFullScreen = $0 }
+    }
+}
+
+final class FullscreenObserverView: NSView {
+    var onChange: ((Bool) -> Void)?
+    private var observers: [NSObjectProtocol] = []
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        let notify = { [weak self] in self?.report() }
+        observers = [
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+            ) { _ in notify() },
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+            ) { _ in notify() },
+        ]
+        report()
+    }
+
+    private func report() {
+        guard let window else { return }
+        onChange?(window.styleMask.contains(.fullScreen))
+    }
+
+    @MainActor
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }
 
