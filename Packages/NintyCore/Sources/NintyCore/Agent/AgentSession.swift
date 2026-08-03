@@ -20,7 +20,7 @@ public enum SessionEvent: Sendable {
     /// Provider call resumed after retry.
     case retryResolved
     /// Files mutated by edit/write during this turn (for "Changed N files" UI).
-    case changedFiles([String])
+    case changedFiles([ChangedFile])
     case error(String)
     case done(input: Int, output: Int)
 }
@@ -320,7 +320,7 @@ public actor AgentSession {
             guard finishReason == .toolCalls, !completedCalls.isEmpty else {
                 busy = false
                 if !turnChangedFiles.isEmpty {
-                    continuation.yield(.changedFiles(Array(turnChangedFiles).sorted()))
+                    continuation.yield(.changedFiles(await changedFilesWithDiffs()))
                 }
                 continuation.yield(.done(input: usage?.input ?? 0, output: usage?.output ?? 0))
                 drainQueue()
@@ -389,6 +389,25 @@ public actor AgentSession {
             try? await self.store.updateTitle(truncated, sessionID: self.id)
             continuation.yield(.titleGenerated(truncated))
         }
+    }
+
+    /// Build turn-end changed files with line diffs against pre-turn snapshots.
+    private func changedFilesWithDiffs() async -> [ChangedFile] {
+        var result: [ChangedFile] = []
+        for path in turnChangedFiles.sorted() {
+            let resolved = ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path
+            let oldText: String?
+            if let original = await snapshots.originalContent(path: resolved) {
+                oldText = original.flatMap { String(data: $0, encoding: .utf8) }
+            } else {
+                // Never recorded (e.g. permission flow raced) — fall back to no diff.
+                oldText = nil
+            }
+            let newText = FileManager.default.contents(atPath: resolved)
+                .flatMap { String(data: $0, encoding: .utf8) }
+            result.append(LineDiff.changedFile(path: path, old: oldText, new: newText))
+        }
+        return result
     }
 
     private func executeWithPermission(

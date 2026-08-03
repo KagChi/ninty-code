@@ -33,6 +33,13 @@ public actor SnapshotStore {
         current[path] = fileManager.contents(atPath: path)
     }
 
+    /// Pre-mutation content for a path recorded this turn (`nil` content = file did not exist).
+    /// Outer `nil` = path was never recorded.
+    public func originalContent(path: String) -> Data?? {
+        if let entry = current[path] { return entry }
+        return applied.last?[path] ?? nil
+    }
+
     /// Restore the most recent segment's originals. Returns restored paths.
     @discardableResult
     public func revert() -> [String] {
