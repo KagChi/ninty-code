@@ -13,15 +13,17 @@ struct NintyCodeApp: App {
                 .preferredColorScheme(.dark)
                 .onAppear { appState.bootstrap() }
         }
-        // opencode desktop parity: no native titlebar — custom TitlebarView with
-        // traffic lights floating over it (Electron titleBarStyle: "hidden").
+        // opencode desktop parity: hidden native titlebar, custom TitlebarView
+        // at true window top with traffic lights overlapping (Electron hiddenInset).
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 750)
-
-        Settings {
-            SettingsView()
-                .environment(appState)
-                .preferredColorScheme(.dark)
+        .commands {
+            // Keep the app-menu Settings item (⌘,) — opens the in-app dialog,
+            // not the native Settings window.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { appState.showSettings = true }
+                    .keyboardShortcut(",")
+            }
         }
     }
 }
@@ -60,6 +62,7 @@ struct ContentView: View {
             .padding(.init(top: 0, leading: 8, bottom: 8, trailing: 8))
         }
         .background(Theme.bgDeep)
+        .ignoresSafeArea(.all, edges: .top)
         .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
         .sheet(isPresented: Binding(
             get: { appState.showModelDialog },
@@ -72,6 +75,12 @@ struct ContentView: View {
             set: { appState.showCommandPalette = $0 }
         )) {
             CommandPalette().environment(appState)
+        }
+        .sheet(isPresented: Binding(
+            get: { appState.showSettings },
+            set: { appState.showSettings = $0 }
+        )) {
+            SettingsDialog().environment(appState)
         }
         .background(GlobalKeybinds())
     }
@@ -93,6 +102,8 @@ struct GlobalKeybinds: View {
                 .keyboardShortcut("k", modifiers: .command)
             Button("") { appState.showCommandPalette = true }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+            Button("") { appState.showSettings = true }
+                .keyboardShortcut(",", modifiers: .command)
             Button("") { appState.newChat() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             Button("") {

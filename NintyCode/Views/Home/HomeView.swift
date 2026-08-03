@@ -58,7 +58,7 @@ struct HomeView: View {
 
             HStack(spacing: 4) {
                 Button {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    appState.showSettings = true
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                         .font(Theme.small)

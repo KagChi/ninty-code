@@ -70,7 +70,8 @@ struct ModelDialog: View {
                 Spacer()
                 Button("Manage providers…") {
                     dismiss()
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    appState.settingsSection = .providers
+                    appState.showSettings = true
                 }
                 .buttonStyle(DockButtonStyle(variant: .ghost))
                 .controlSize(.small)
@@ -143,6 +144,7 @@ struct CommandPalette: View {
             Item(id: "model", title: "Choose model") { $0.showModelDialog = true },
             Item(id: "autoaccept", title: "Toggle auto-accept permissions") { $0.activeChat?.autoAccept.toggle() },
             Item(id: "open", title: "Open project…") { $0.pickProject() },
+            Item(id: "settings", title: "Settings") { $0.showSettings = true },
         ]
     }
 

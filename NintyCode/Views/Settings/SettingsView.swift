@@ -1,63 +1,174 @@
+import AppKit
 import SwiftUI
 import NintyCore
 
-/// opencode dialog-settings: left sidebar of sections + content pane.
-struct SettingsView: View {
-    @Environment(AppState.self) private var appState
-    @State private var section: SettingsSection = .general
+/// Settings sections (opencode dialog-settings sidebar).
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general = "General"
+    case providers = "Providers"
+    case mcp = "MCP"
+    case logging = "Logging"
+    case about = "About"
 
-    enum SettingsSection: String, CaseIterable, Identifiable {
-        case general = "General"
-        case providers = "Providers"
-        case mcp = "MCP"
-        case logging = "Logging"
-        case about = "About"
-
-        var id: String { rawValue }
-        var icon: String {
-            switch self {
-            case .general: return "gear"
-            case .providers: return "key"
-            case .mcp: return "server.rack"
-            case .logging: return "doc.text"
-            case .about: return "info.circle"
-            }
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .general: return "gearshape"
+        case .providers: return "key"
+        case .mcp: return "server.rack"
+        case .logging: return "doc.text"
+        case .about: return "info.circle"
         }
     }
+}
+
+/// opencode dialog-settings: in-app modal — left section sidebar + content pane,
+/// same chrome family as ModelDialog. No native Settings window.
+struct SettingsDialog: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationSplitView {
-            List(SettingsSection.allCases, selection: $section) { item in
-                Label(item.rawValue, systemImage: item.icon)
-                    .tag(item)
+        HStack(spacing: 0) {
+            sidebar
+            Divider().overlay(Theme.borderMuted)
+            content
+        }
+        .frame(width: 720, height: 480)
+        .background(Theme.bgBase)
+        .onExitCommand { dismiss() }
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Settings")
+                .font(Theme.smallMedium)
+                .foregroundStyle(Theme.textBase)
+                .padding(.horizontal, 10)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
+            ForEach(SettingsSection.allCases) { section in
+                sidebarRow(section)
             }
-            .listStyle(.sidebar)
-            .frame(minWidth: 160)
-        } detail: {
-            Group {
-                switch section {
-                case .general: GeneralSettingsView()
-                case .providers: ProvidersSettingsView()
-                case .mcp: MCPSettingsView()
-                case .logging: LoggingSettingsView()
-                case .about: AboutSettingsView()
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(width: 170)
+        .frame(maxHeight: .infinity)
+        .background(Theme.bgDeep)
+    }
+
+    private func sidebarRow(_ section: SettingsSection) -> some View {
+        let selected = appState.settingsSection == section
+        return HStack(spacing: 8) {
+            Image(systemName: section.icon)
+                .font(.system(size: 12))
+                .foregroundStyle(selected ? Theme.textBase : Theme.textFaint)
+                .frame(width: 16)
+            Text(section.rawValue)
+                .font(Theme.smallMedium)
+                .foregroundStyle(selected ? Theme.textBase : Theme.textMuted)
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(selected ? Theme.overlayPressed : .clear, in: .rect(cornerRadius: Theme.radiusSmall))
+        .contentShape(Rectangle())
+        .onTapGesture { appState.settingsSection = section }
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                switch appState.settingsSection {
+                case .general: GeneralPane()
+                case .providers: ProvidersPane()
+                case .mcp: MCPPane()
+                case .logging: LoggingPane()
+                case .about: AboutPane()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 680, height: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Shared building blocks
+
+/// Uppercase tiny section header (ModelDialog style).
+private struct PaneHeader: View {
+    let title: String
+    var body: some View {
+        Text(title.uppercased())
+            .font(Theme.tiny)
+            .foregroundStyle(Theme.textFaint)
+    }
+}
+
+/// Text field on layer02, rounded — replaces native grouped-Form styling.
+private struct PaneField: View {
+    let label: String
+    @Binding var text: String
+    var placeholder = ""
+    var secure = false
+    var onSubmit: () -> Void = {}
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textMuted)
+            Group {
+                if secure {
+                    SecureField(placeholder, text: $text)
+                } else {
+                    TextField(placeholder, text: $text)
+                }
+            }
+            .textFieldStyle(.plain)
+            .font(Theme.small)
+            .foregroundStyle(Theme.textBase)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Theme.layer02, in: .rect(cornerRadius: Theme.radiusSmall))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.borderMuted, lineWidth: 0.5))
+            .onSubmit(onSubmit)
+        }
+    }
+}
+
+private struct PaneCard<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) { content }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.layer02.opacity(0.5), in: .rect(cornerRadius: Theme.radiusSmall))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.borderMuted, lineWidth: 0.5))
     }
 }
 
 // MARK: - General
 
-struct GeneralSettingsView: View {
+struct GeneralPane: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        Form {
-            Section("Session") {
-                Picker("Default model", selection: Binding(
+        PaneHeader(title: "Session")
+        PaneCard {
+            HStack {
+                Text("Default model")
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.textBase)
+                Spacer()
+                Picker("", selection: Binding(
                     get: { appState.selectedModel },
                     set: { appState.selectModel($0) }
                 )) {
@@ -65,22 +176,30 @@ struct GeneralSettingsView: View {
                         Text(reference).tag(reference)
                     }
                 }
-                Text("Used for new sessions. Switch any time with ⌘'.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .labelsHidden()
+                .frame(maxWidth: 260)
             }
-            Section("Behavior") {
-                Toggle("Auto-accept permissions (⇧⌘A in session)", isOn: Binding(
-                    get: { appState.activeChat?.autoAccept ?? false },
-                    set: { appState.activeChat?.autoAccept = $0 }
-                ))
-                .disabled(appState.activeChat == nil)
-                Text("Applies to the active session's permission prompts.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Used for new sessions. Switch any time with ⌘'.")
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textFaint)
         }
-        .formStyle(.grouped)
+
+        PaneHeader(title: "Behavior")
+        PaneCard {
+            Toggle(isOn: Binding(
+                get: { appState.activeChat?.autoAccept ?? false },
+                set: { appState.activeChat?.autoAccept = $0 }
+            )) {
+                Text("Auto-accept permissions")
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.textBase)
+            }
+            .toggleStyle(.checkbox)
+            .disabled(appState.activeChat == nil)
+            Text("Applies to the active session's permission prompts (⇧⌘A).")
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textFaint)
+        }
     }
 
     private var modelOptions: [String] {
@@ -93,7 +212,7 @@ struct GeneralSettingsView: View {
 
 // MARK: - Providers
 
-struct ProvidersSettingsView: View {
+struct ProvidersPane: View {
     @Environment(AppState.self) private var appState
     @State private var keys: [String: String] = [:]
     @State private var baseURLs: [String: String] = [:]
@@ -104,67 +223,72 @@ struct ProvidersSettingsView: View {
         case testing, ok(Int), failed(String)
     }
 
-    /// Bundled preset ids — everything else in config is a custom provider.
     private var bundledIDs: Set<String> {
         Set(((try? ProviderRegistry.load())?.presets ?? []).map(\.id))
     }
 
     var body: some View {
-        Form {
-            if let registry = appState.registry {
-                ForEach(registry.presets.filter { bundledIDs.contains($0.id) && $0.id != "custom" }, id: \.id) { preset in
-                    Section {
-                        if let keyEnv = preset.keyEnv {
-                            LabeledContent {
-                                SecureField("API Key (env: \(keyEnv))", text: binding(for: preset.id))
-                                    .textContentType(.password)
-                                    .onSubmit { save(preset.id) }
-                            } label: {
-                                Text("API Key")
-                            }
+        PaneHeader(title: "Built-in Providers")
+        if let registry = appState.registry {
+            ForEach(registry.presets.filter { bundledIDs.contains($0.id) && $0.id != "custom" }, id: \.id) { preset in
+                PaneCard {
+                    HStack {
+                        Text(preset.name)
+                            .font(Theme.smallMedium)
+                            .foregroundStyle(Theme.textBase)
+                        if !appState.storedAPIKey(for: preset.id).isEmpty {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.success)
                         }
-                        LabeledContent("Base URL") {
-                            TextField(preset.baseURL, text: urlBinding(for: preset.id))
-                                .onSubmit { saveBaseURL(preset.id) }
-                        }
-                        HStack {
-                            testButton(providerID: preset.id)
-                            Spacer()
-                            testStatus(providerID: preset.id)
-                        }
-                    } header: {
-                        HStack {
-                            Text(preset.name)
-                            if appState.storedAPIKey(for: preset.id).isEmpty == false {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                    .font(.caption)
-                            }
-                        }
+                        Spacer()
+                        testButton(providerID: preset.id)
+                        testStatus(providerID: preset.id)
                     }
-                }
-            }
-
-            Section("Custom Providers") {
-                ForEach($customProviders) { $draft in
-                    CustomProviderRow(
-                        draft: $draft,
-                        testState: testResults[draft.id],
-                        onSave: { saveCustom(draft) },
-                        onTest: { testProvider(draft.id) },
-                        onDelete: { deleteCustom(draft.id) }
+                    if let keyEnv = preset.keyEnv {
+                        PaneField(
+                            label: "API Key (env: \(keyEnv))",
+                            text: binding(for: preset.id),
+                            placeholder: "sk-…",
+                            secure: true,
+                            onSubmit: { save(preset.id) }
+                        )
+                    }
+                    PaneField(
+                        label: "Base URL",
+                        text: urlBinding(for: preset.id),
+                        placeholder: preset.baseURL,
+                        onSubmit: { saveBaseURL(preset.id) }
                     )
                 }
-                Button("Add Provider") { addCustom() }
             }
         }
-        .formStyle(.grouped)
+
+        PaneHeader(title: "Custom Providers")
+        ForEach($customProviders) { $draft in
+            CustomProviderCard(
+                draft: $draft,
+                testState: testResults[draft.id],
+                onSave: { saveCustom(draft) },
+                onTest: { testProvider(draft.id) },
+                onDelete: { deleteCustom(draft.id) }
+            )
+        }
+        Button {
+            addCustom()
+        } label: {
+            Label("Add Provider", systemImage: "plus")
+        }
+        .buttonStyle(DockButtonStyle(variant: .secondary))
+        .controlSize(.small)
+
         .onAppear { load() }
     }
 
     @ViewBuilder
     private func testButton(providerID: String) -> some View {
-        Button("Test Connection") { testProvider(providerID) }
+        Button("Test") { testProvider(providerID) }
+            .buttonStyle(DockButtonStyle(variant: .ghost))
             .controlSize(.small)
             .disabled(testResults[providerID] == .testing)
     }
@@ -175,9 +299,9 @@ struct ProvidersSettingsView: View {
         case .testing:
             ProgressView().controlSize(.mini)
         case .ok(let count):
-            Text("OK — \(count) models").font(.caption).foregroundStyle(.green)
+            Text("OK — \(count) models").font(Theme.caption).foregroundStyle(Theme.success)
         case .failed(let error):
-            Text(error).font(.caption).foregroundStyle(.red).lineLimit(1)
+            Text(error).font(Theme.caption).foregroundStyle(Theme.danger).lineLimit(1)
         case nil:
             EmptyView()
         }
@@ -186,7 +310,6 @@ struct ProvidersSettingsView: View {
     private func testProvider(_ id: String) {
         testResults[id] = .testing
         Task {
-            defer { if testResults[id] == .testing { testResults[id] = nil } }
             guard let registry = appState.registry, let resolved = appState.resolved else {
                 testResults[id] = .failed("not configured")
                 return
@@ -207,17 +330,11 @@ struct ProvidersSettingsView: View {
     }
 
     private func binding(for provider: String) -> Binding<String> {
-        Binding(
-            get: { keys[provider] ?? "" },
-            set: { keys[provider] = $0 }
-        )
+        Binding(get: { keys[provider] ?? "" }, set: { keys[provider] = $0 })
     }
 
     private func urlBinding(for provider: String) -> Binding<String> {
-        Binding(
-            get: { baseURLs[provider] ?? "" },
-            set: { baseURLs[provider] = $0 }
-        )
+        Binding(get: { baseURLs[provider] ?? "" }, set: { baseURLs[provider] = $0 })
     }
 
     private func load() {
@@ -306,54 +423,58 @@ struct CustomProviderDraft: Identifiable, Equatable {
     var modelIDs: String
 }
 
-struct CustomProviderRow: View {
+private struct CustomProviderCard: View {
     @Environment(AppState.self) private var appState
     @Binding var draft: CustomProviderDraft
-    let testState: ProvidersSettingsView.TestState?
+    let testState: ProvidersPane.TestState?
     let onSave: () -> Void
     let onTest: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        PaneCard {
             HStack {
-                Text(draft.id).font(.caption).foregroundStyle(.secondary)
+                Text(draft.id)
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textFaint)
                 Spacer()
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-            }
-            TextField("Name", text: $draft.name)
-                .onSubmit(onSave)
-            TextField("Base URL (e.g. https://host/v1)", text: $draft.baseURL)
-                .onSubmit(onSave)
-            SecureField("API Key (optional)", text: Binding(
-                get: { appState.storedAPIKey(for: draft.id) },
-                set: { appState.saveAPIKey($0, for: draft.id) }
-            ))
-            TextField("Model IDs, comma-separated", text: $draft.modelIDs)
-                .onSubmit(onSave)
-            HStack {
                 Button("Save", action: onSave)
+                    .buttonStyle(DockButtonStyle(variant: .secondary))
                     .controlSize(.small)
-                Button("Test Connection", action: onTest)
+                Button("Test", action: onTest)
+                    .buttonStyle(DockButtonStyle(variant: .ghost))
                     .controlSize(.small)
                     .disabled(testState == .testing)
-                Spacer()
                 switch testState {
                 case .testing:
                     ProgressView().controlSize(.mini)
                 case .ok(let count):
-                    Text("OK — \(count) models").font(.caption).foregroundStyle(.green)
+                    Text("OK — \(count) models").font(Theme.caption).foregroundStyle(Theme.success)
                 case .failed(let error):
-                    Text(error).font(.caption).foregroundStyle(.red).lineLimit(1)
+                    Text(error).font(Theme.caption).foregroundStyle(Theme.danger).lineLimit(1)
                 case nil:
                     EmptyView()
                 }
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.danger)
+                }
+                .buttonStyle(.plain)
             }
+            PaneField(label: "Name", text: $draft.name, placeholder: "My Provider", onSubmit: onSave)
+            PaneField(label: "Base URL", text: $draft.baseURL, placeholder: "https://host/v1", onSubmit: onSave)
+            PaneField(
+                label: "API Key (optional)",
+                text: Binding(
+                    get: { appState.storedAPIKey(for: draft.id) },
+                    set: { appState.saveAPIKey($0, for: draft.id) }
+                ),
+                placeholder: "sk-…",
+                secure: true
+            )
+            PaneField(label: "Model IDs, comma-separated", text: $draft.modelIDs, placeholder: "model-a, model-b", onSubmit: onSave)
         }
-        .padding(.vertical, 4)
     }
 }
 
@@ -385,36 +506,37 @@ struct GlobalConfigWriter {
 
 // MARK: - MCP
 
-struct MCPSettingsView: View {
+struct MCPPane: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        Form {
-            Section("Configured Servers") {
-                let servers = appState.resolved?.config.mcp ?? [:]
-                if servers.isEmpty {
-                    Text("No MCP servers. Add them to ~/.config/ninty/ninty.json or your project's ninty.json.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(servers.keys.sorted(), id: \.self) { name in
-                        HStack {
-                            statusIcon(for: name)
-                            VStack(alignment: .leading) {
-                                Text(name).fontWeight(.medium)
-                                Text(commandLine(for: name))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(statusText(for: name))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+        PaneHeader(title: "Configured Servers")
+        let servers = appState.resolved?.config.mcp ?? [:]
+        if servers.isEmpty {
+            Text("No MCP servers. Add them to ~/.config/ninty/ninty.json or your project's ninty.json.")
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textFaint)
+        } else {
+            ForEach(servers.keys.sorted(), id: \.self) { name in
+                PaneCard {
+                    HStack {
+                        statusIcon(for: name)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                                .font(Theme.smallMedium)
+                                .foregroundStyle(Theme.textBase)
+                            Text(commandLine(for: name))
+                                .font(Theme.caption)
+                                .foregroundStyle(Theme.textFaint)
                         }
+                        Spacer()
+                        Text(statusText(for: name))
+                            .font(Theme.caption)
+                            .foregroundStyle(Theme.textMuted)
                     }
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private func commandLine(for name: String) -> String {
@@ -435,20 +557,20 @@ struct MCPSettingsView: View {
     private func statusIcon(for name: String) -> some View {
         switch appState.mcpStatuses[name] {
         case .running:
-            Image(systemName: "circle.fill").foregroundStyle(.green)
+            Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Theme.success)
         case .starting:
             ProgressView().controlSize(.mini)
         case .failed:
-            Image(systemName: "circle.fill").foregroundStyle(.red)
+            Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Theme.danger)
         case nil:
-            Image(systemName: "circle").foregroundStyle(.secondary)
+            Image(systemName: "circle").font(.system(size: 8)).foregroundStyle(Theme.textFaint)
         }
     }
 }
 
 // MARK: - Logging
 
-struct LoggingSettingsView: View {
+struct LoggingPane: View {
     @Environment(AppState.self) private var appState
     @State private var requestsEnabled = false
     @State private var logSize = ""
@@ -459,33 +581,44 @@ struct LoggingSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Provider Requests") {
-                Toggle("Log requests to provider.log", isOn: $requestsEnabled)
-                    .onChange(of: requestsEnabled) { _, value in
-                        save(value)
-                    }
-                Text("Method, URL, status and truncated bodies. API keys are never written. Env override: NINTY_LOG_REQUESTS=1.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        PaneHeader(title: "Provider Requests")
+        PaneCard {
+            Toggle(isOn: $requestsEnabled) {
+                Text("Log requests to provider.log")
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.textBase)
             }
-            Section("Log File") {
-                LabeledContent("Path", value: logURL.path)
-                    .font(.caption)
-                LabeledContent("Size", value: logSize)
-                HStack {
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([logURL])
-                    }
-                    Button("Clear") {
-                        try? FileManager.default.removeItem(at: logURL)
-                        refreshSize()
-                    }
-                    .disabled(logSize == "0 KB")
+            .toggleStyle(.checkbox)
+            .onChange(of: requestsEnabled) { _, value in save(value) }
+            Text("Method, URL, status and truncated bodies. API keys are never written. Env override: NINTY_LOG_REQUESTS=1.")
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textFaint)
+        }
+
+        PaneHeader(title: "Log File")
+        PaneCard {
+            LabeledContent("Path", value: logURL.path)
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textMuted)
+            LabeledContent("Size", value: logSize)
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textMuted)
+            HStack {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([logURL])
                 }
+                .buttonStyle(DockButtonStyle(variant: .secondary))
+                .controlSize(.small)
+                Button("Clear") {
+                    try? FileManager.default.removeItem(at: logURL)
+                    refreshSize()
+                }
+                .buttonStyle(DockButtonStyle(variant: .ghost))
+                .controlSize(.small)
+                .disabled(logSize == "0 KB")
             }
         }
-        .formStyle(.grouped)
+
         .onAppear {
             requestsEnabled = appState.resolved?.config.logging?.requests ?? false
             refreshSize()
@@ -515,27 +648,32 @@ struct LoggingSettingsView: View {
 
 // MARK: - About
 
-struct AboutSettingsView: View {
+struct AboutPane: View {
     var body: some View {
-        Form {
-            Section("ninty-code") {
-                LabeledContent("Version", value: "0.1.0")
-                LabeledContent("Build", value: "macOS 26+, arm64")
-                LabeledContent("License", value: "MIT")
-            }
-            Section("Paths") {
-                LabeledContent("Config", value: "~/.config/ninty/ninty.json")
-                    .font(.caption)
-                LabeledContent("Sessions", value: "~/.local/share/ninty/")
-                    .font(.caption)
-                LabeledContent("Logs", value: "~/.local/share/ninty/logs/")
-                    .font(.caption)
-            }
-            Section {
-                Link("GitHub Repository", destination: URL(string: "https://github.com/KagChi/ninty-code")!)
-                Link("Report an Issue", destination: URL(string: "https://github.com/KagChi/ninty-code/issues")!)
-            }
+        PaneHeader(title: "ninty-code")
+        PaneCard {
+            LabeledContent("Version", value: "0.1.0")
+            LabeledContent("Build", value: "macOS 26+, arm64")
+            LabeledContent("License", value: "MIT")
         }
-        .formStyle(.grouped)
+        .font(Theme.small)
+        .foregroundStyle(Theme.textMuted)
+
+        PaneHeader(title: "Paths")
+        PaneCard {
+            LabeledContent("Config", value: "~/.config/ninty/ninty.json")
+            LabeledContent("Sessions", value: "~/.local/share/ninty/")
+            LabeledContent("Logs", value: "~/.local/share/ninty/logs/")
+        }
+        .font(Theme.caption)
+        .foregroundStyle(Theme.textMuted)
+
+        PaneHeader(title: "Links")
+        PaneCard {
+            Link("GitHub Repository", destination: URL(string: "https://github.com/KagChi/ninty-code")!)
+                .font(Theme.small)
+            Link("Report an Issue", destination: URL(string: "https://github.com/KagChi/ninty-code/issues")!)
+                .font(Theme.small)
+        }
     }
 }

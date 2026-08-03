@@ -41,6 +41,9 @@ final class AppState {
     var showCommandPalette = false
     /// Right side panel (review/files) — ⇧⌘R, opencode v2 titlebar toggle.
     var showSidePanel = false
+    /// In-app settings dialog (opencode dialog-settings — no native Settings window).
+    var showSettings = false
+    var settingsSection: SettingsSection = .general
 
     /// Recent model references, newest first, max 5 (opencode recent-ring).
     var recentModels: [String] = []
