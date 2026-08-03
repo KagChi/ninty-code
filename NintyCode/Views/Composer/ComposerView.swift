@@ -24,6 +24,7 @@ struct ComposerView: View {
     @State private var shellMode = false
     @State private var attachments: [String] = [] // data URLs
     @State private var placeholderIndex = 0
+    @State private var showAgentPicker = false
     @FocusState private var focused: Bool
 
     private let history = PromptHistory()
@@ -356,19 +357,11 @@ struct ComposerView: View {
     }
 
     /// Agent selector: capitalized name + chevron (opencode PromptInputV2Select).
+    /// Plain Button + popover — a SwiftUI Menu draws AppKit chrome (extra
+    /// indicator chevron, selected-item checkmark) on top of the custom label.
     private var agentMenu: some View {
-        Menu {
-            ForEach(appState.agents) { agent in
-                Button {
-                    appState.selectAgent(agent)
-                } label: {
-                    if agent.id == store.agent.id {
-                        Label(agent.name, systemImage: "checkmark")
-                    } else {
-                        Text(agent.name)
-                    }
-                }
-            }
+        Button {
+            showAgentPicker.toggle()
         } label: {
             HStack(spacing: 4) {
                 Text(store.agent.name)
@@ -382,8 +375,36 @@ struct ComposerView: View {
             .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        .buttonStyle(.plain)
+        .popover(isPresented: $showAgentPicker, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(appState.agents) { agent in
+                    Button {
+                        appState.selectAgent(agent)
+                        showAgentPicker = false
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(agent.name)
+                                .font(Theme.small)
+                                .foregroundStyle(Theme.textBase)
+                            Spacer()
+                            if agent.id == store.agent.id {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(Theme.textAccent)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(AgentPickerRowStyle())
+                }
+            }
+            .padding(4)
+            .frame(width: 170)
+            .background(Theme.bgBase)
+        }
         .help("Choose agent (⌘.)")
     }
 
@@ -595,5 +616,19 @@ extension View {
                 .fill(Theme.overlayHover)
                 .opacity(0)
         )
+    }
+}
+
+/// Hover-highlight row for the agent picker popover.
+struct AgentPickerRowStyle: ButtonStyle {
+    @State private var hovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                    .fill(hovered || configuration.isPressed ? Theme.overlayHover : .clear)
+            )
+            .onHover { hovered = $0 }
     }
 }
