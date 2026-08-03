@@ -14,16 +14,56 @@ struct ToolCallDisplay: Identifiable, Equatable {
     var status: Status = .running
 }
 
+/// One rendered unit inside a message, in emission order (opencode part order):
+/// text → toolCall → text → toolCall. Tool results update their call in place.
+enum DisplayBlock: Equatable {
+    case text(String)
+    case toolCall(ToolCallDisplay)
+}
+
 struct DisplayMessage: Identifiable, Equatable {
     var id = UUID()
     var role: Role
-    var text: String = ""
-    var toolCalls: [ToolCallDisplay] = []
+    var blocks: [DisplayBlock] = []
     var timestamp: Date = Date()
     /// Timeline marker (e.g. "Compaction") — rendered as a divider, not a bubble.
     var isMarker = false
     /// Attached images (data URLs).
     var images: [String] = []
+
+    init(role: Role, text: String = "", blocks: [DisplayBlock]? = nil, isMarker: Bool = false, images: [String] = []) {
+        self.role = role
+        self.blocks = blocks ?? (text.isEmpty ? [] : [.text(text)])
+        self.isMarker = isMarker
+        self.images = images
+    }
+
+    /// Joined text blocks (compat: fork, previews, copy).
+    var text: String {
+        blocks.compactMap { if case .text(let t) = $0 { return t }; return nil }.joined()
+    }
+
+    /// All tool call blocks (compat: tool status checks).
+    var toolCalls: [ToolCallDisplay] {
+        blocks.compactMap { if case .toolCall(let c) = $0 { return c }; return nil }
+    }
+
+    /// Tool result landed: update its call block in place (preserves order),
+    /// or append an orphan-result block if the call wasn't seen.
+    mutating func updateToolCallBlock(id: String, output: String, isError: Bool) {
+        for index in blocks.indices.reversed() {
+            guard case .toolCall(var call) = blocks[index], call.id == id else { continue }
+            call.output = output
+            call.isError = isError
+            call.status = isError ? .failed : .done
+            blocks[index] = .toolCall(call)
+            return
+        }
+        blocks.append(.toolCall(ToolCallDisplay(
+            id: id, name: "", arguments: .object([:]),
+            output: output, isError: isError, status: isError ? .failed : .done
+        )))
+    }
 }
 
 // MARK: - ChatStore
@@ -52,6 +92,10 @@ final class ChatStore {
     /// Last turn's token usage (context meter in session header).
     var lastInputTokens = 0
     var contextWindow = 128_000
+    /// Full token accounting of the last turn (context tab).
+    private(set) var lastUsage: TokenUsage?
+    /// Live system prompt from the session (context tab card).
+    private(set) var systemPrompt = ""
 
     let sessionID: String
     let projectRoot: URL
@@ -114,6 +158,7 @@ final class ChatStore {
         )
         // Restore existing history when reopening a session.
         Task {
+            systemPrompt = await session.currentSystemPrompt
             if let loaded = try? await store.load(id: sessionID) {
                 self.metaCreated = true
                 await session.restoreHistory(loaded.messages)
@@ -130,22 +175,17 @@ final class ChatStore {
         for part in message.parts {
             switch part {
             case .text(let text):
-                display.text += text
+                if case .text(let existing) = display.blocks.last {
+                    display.blocks[display.blocks.count - 1] = .text(existing + text)
+                } else {
+                    display.blocks.append(.text(text))
+                }
             case .image(let dataURL):
                 display.images.append(dataURL)
             case .toolCall(let id, let name, let arguments):
-                display.toolCalls.append(ToolCallDisplay(id: id, name: name, arguments: arguments, status: .done))
+                display.blocks.append(.toolCall(ToolCallDisplay(id: id, name: name, arguments: arguments, status: .done)))
             case .toolResult(let id, _, let output, let isError):
-                if let index = display.toolCalls.firstIndex(where: { $0.id == id }) {
-                    display.toolCalls[index].output = output
-                    display.toolCalls[index].isError = isError
-                    display.toolCalls[index].status = isError ? .failed : .done
-                } else {
-                    display.toolCalls.append(ToolCallDisplay(
-                        id: id, name: "", arguments: .object([:]),
-                        output: output, isError: isError, status: isError ? .failed : .done
-                    ))
-                }
+                display.updateToolCallBlock(id: id, output: output, isError: isError)
             }
         }
         return display
@@ -167,17 +207,32 @@ final class ChatStore {
         if !isActive { hasUnread = true }
         switch event {
         case .textDelta(let delta):
+            // opencode: a new assistant message starts per loop iteration — text
+            // after tool results is a new bubble, not appended to the old one.
             ensureAssistantMessage()
-            messages[messages.count - 1].text += delta
+            var last = messages.count - 1
+            if case .toolCall(let call) = messages[last].blocks.last, call.status != .running {
+                messages.append(DisplayMessage(role: .assistant))
+                last = messages.count - 1
+            }
+            if case .text(let existing) = messages[last].blocks.last {
+                messages[last].blocks[messages[last].blocks.count - 1] = .text(existing + delta)
+            } else {
+                messages[last].blocks.append(.text(delta))
+            }
         case .toolCallStarted(let id, let name):
             ensureAssistantMessage()
-            messages[messages.count - 1].toolCalls.append(
-                ToolCallDisplay(id: id, name: name, arguments: .object([:]))
+            messages[messages.count - 1].blocks.append(
+                .toolCall(ToolCallDisplay(id: id, name: name, arguments: .object([:])))
             )
         case .toolCallUpdated(let id, let arguments):
-            guard let last = messages.indices.last,
-                  let index = messages[last].toolCalls.firstIndex(where: { $0.id == id }) else { return }
-            messages[last].toolCalls[index].arguments = arguments
+            guard let last = messages.indices.last else { return }
+            for index in messages[last].blocks.indices.reversed() {
+                guard case .toolCall(var call) = messages[last].blocks[index], call.id == id else { continue }
+                call.arguments = arguments
+                messages[last].blocks[index] = .toolCall(call)
+                return
+            }
         case .toolResult(let id, let name, let output, let isError):
             updateToolCall(id: id, name: name, output: output, isError: isError)
         case .permissionAsked(let request):
@@ -214,6 +269,7 @@ final class ChatStore {
             streaming = false
             pendingPermission = nil
             retry = nil
+            Task { lastUsage = await session.lastUsage }
             onChange()
         }
     }
@@ -226,15 +282,17 @@ final class ChatStore {
 
     private func updateToolCall(id: String, name: String, output: String, isError: Bool) {
         guard let last = messages.indices.last else { return }
-        if let index = messages[last].toolCalls.firstIndex(where: { $0.id == id }) {
-            messages[last].toolCalls[index].output = output
-            messages[last].toolCalls[index].isError = isError
-            messages[last].toolCalls[index].status = isError ? .failed : .done
+        let known = messages[last].blocks.contains {
+            if case .toolCall(let call) = $0 { return call.id == id }
+            return false
+        }
+        if known {
+            messages[last].updateToolCallBlock(id: id, output: output, isError: isError)
         } else {
-            messages[last].toolCalls.append(ToolCallDisplay(
+            messages[last].blocks.append(.toolCall(ToolCallDisplay(
                 id: id, name: name, arguments: .object([:]),
                 output: output, isError: isError, status: isError ? .failed : .done
-            ))
+            )))
         }
     }
 
@@ -405,7 +463,7 @@ final class ChatStore {
             let callID = UUID().uuidString
             let display = ToolCallDisplay(id: callID, name: "bash",
                                           arguments: .object(["command": .string(trimmed)]))
-            messages.append(DisplayMessage(role: .assistant, toolCalls: [display]))
+            messages.append(DisplayMessage(role: .assistant, blocks: [.toolCall(display)]))
             do {
                 let result = try await BashTool().execute(
                     ["command": .string(trimmed)],

@@ -63,14 +63,19 @@ struct MessageView: View {
 
     private var assistantMessage: some View {
         VStack(alignment: .leading, spacing: 2) {
-            if !message.text.isEmpty {
-                MarkdownText(content: message.text)
-                    .font(Theme.sans)
-                    .foregroundStyle(Theme.textBase)
-                    .textSelection(.enabled)
-            }
-            ForEach(message.toolCalls) { call in
-                ToolCallRow(call: call)
+            // Blocks render in emission order: text → tool call → text → tool call.
+            ForEach(Array(message.blocks.enumerated()), id: \.offset) { _, block in
+                switch block {
+                case .text(let text):
+                    if !text.isEmpty {
+                        MarkdownText(content: text)
+                            .font(Theme.sans)
+                            .foregroundStyle(Theme.textBase)
+                            .textSelection(.enabled)
+                    }
+                case .toolCall(let call):
+                    ToolCallRow(call: call)
+                }
             }
             metaRow(alignment: .leading)
         }
