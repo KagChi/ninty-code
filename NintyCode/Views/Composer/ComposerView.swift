@@ -371,9 +371,6 @@ struct ComposerView: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Circle()
-                    .fill(Theme.agentColor(store.agent.id))
-                    .frame(width: 6, height: 6)
                 Text(store.agent.name)
                     .font(Theme.smallMedium)
                     .foregroundStyle(Theme.textMuted)
@@ -390,22 +387,11 @@ struct ComposerView: View {
         .help("Choose agent (⌘.)")
     }
 
-    /// Model selector: provider icon + model name + chevron.
+    /// Model selector: opens the searchable model dialog (⌘') — same surface,
+    /// search + recents + provider groups instead of a flat menu.
     private var modelMenu: some View {
-        Menu {
-            if let registry = appState.registry {
-                ForEach(registry.presets, id: \.id) { preset in
-                    if !preset.models.isEmpty {
-                        Section(preset.name) {
-                            ForEach(preset.models, id: \.id) { model in
-                                Button(model.name) {
-                                    appState.selectModel("\(preset.id)/\(model.id)")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        Button {
+            appState.showModelDialog = true
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "cpu")
@@ -422,8 +408,7 @@ struct ComposerView: View {
             .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        .buttonStyle(.plain)
         .help("Choose model (⌘')")
     }
 
