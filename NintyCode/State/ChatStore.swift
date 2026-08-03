@@ -84,7 +84,7 @@ final class ChatStore {
     /// HTTP retry in progress: (attempt, delay seconds). Nil = not retrying.
     var retry: (attempt: Int, delay: Int)?
     /// Files changed during the last completed turn ("Changed N files" accordion).
-    var changedFiles: [String] = []
+    var changedFiles: [ChangedFile] = []
     /// Set by AppState: whether this tab is currently visible.
     var isActive = false
     /// Background activity marker (opencode unread dot).
@@ -317,6 +317,7 @@ final class ChatStore {
         }
         messages.append(DisplayMessage(role: .user, text: trimmed, images: images))
         streaming = true
+        changedFiles = []
         // First message creates the on-disk meta so the session lists in the sidebar.
         if !metaCreated {
             metaCreated = true

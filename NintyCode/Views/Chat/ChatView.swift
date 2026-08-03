@@ -72,7 +72,7 @@ struct ChatView: View {
                         }
                     }
                     if !store.streaming, !store.changedFiles.isEmpty {
-                        ChangedFilesRow(files: store.changedFiles)
+                        ChangedFilesSection(files: store.changedFiles)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -91,6 +91,12 @@ struct ChatView: View {
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
             .onChange(of: store.messages.count) {
+                userScrolledUp = false
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+            .onChange(of: store.changedFiles.count) { _, count in
+                // Turn-end summary lands after the last message — keep it visible.
+                guard count > 0 else { return }
                 userScrolledUp = false
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
@@ -387,51 +393,75 @@ struct RetryRow: View {
     }
 }
 
-/// opencode turn-end "Changed N files" accordion (max 10 + show all).
-struct ChangedFilesRow: View {
-    let files: [String]
-    @State private var expanded = false
-    @State private var showAll = false
+/// opencode turn-end summary: "N Changed files +A −D" header + bordered card
+/// with per-file rows that expand to an inline line diff.
+struct ChangedFilesSection: View {
+    let files: [ChangedFile]
+
+    private var totalAdds: Int { files.reduce(0) { $0 + $1.additions } }
+    private var totalDels: Int { files.reduce(0) { $0 + $1.deletions } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.badge.gearshape")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.textFaint)
-                    Text("Changed \(files.count) file\(files.count == 1 ? "" : "s")")
-                        .font(Theme.smallMedium)
-                        .foregroundStyle(Theme.textMuted)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.textFaint)
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                }
-                .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("\(files.count) Changed file\(files.count == 1 ? "" : "s")")
+                    .font(Theme.sansMedium)
+                    .foregroundStyle(Theme.textBase)
+                DiffChangesText(adds: totalAdds, deletes: totalDels)
             }
-            .buttonStyle(.plain)
-            if expanded {
-                let shown = showAll ? files : Array(files.prefix(10))
-                ForEach(shown, id: \.self) { file in
-                    Text(file)
-                        .font(Theme.mono)
-                        .foregroundStyle(Theme.textMuted)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                if files.count > 10 && !showAll {
-                    Button("Show all \(files.count)") { showAll = true }
-                        .buttonStyle(DockButtonStyle(variant: .ghost))
-                        .controlSize(.small)
+            VStack(spacing: 0) {
+                ForEach(Array(files.enumerated()), id: \.element.path) { index, file in
+                    if index > 0 {
+                        Divider().overlay(Theme.borderMuted)
+                    }
+                    ChangedFileRow(file: file)
                 }
             }
+            .background(Theme.layer02, in: .rect(cornerRadius: Theme.radiusMedium))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusMedium).stroke(Theme.borderBase, lineWidth: 0.5))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMedium))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+/// One file row in the changed-files card; expands to the inline diff.
+private struct ChangedFileRow: View {
+    let file: ChangedFile
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(file.path)
+                        .font(Theme.smallMedium)
+                        .foregroundStyle(Theme.textBase)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    DiffChangesText(adds: file.additions, deletes: file.deletions)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                Divider().overlay(Theme.borderMuted)
+                InlineDiffView(lines: file.lines)
+            }
+        }
+    }
+}
+
+
 
 /// opencode v2 session header: editable title + context usage + overflow menu.
 struct SessionHeader: View {
