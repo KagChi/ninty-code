@@ -88,17 +88,26 @@ struct ToolCallRow: View {
     }
 
     private var diffChanges: (adds: Int, deletes: Int)? {
-        guard call.name == "edit",
-              let oldString = call.arguments["oldString"]?.stringValue,
-              let newString = call.arguments["newString"]?.stringValue else { return nil }
-        return (newString.components(separatedBy: .newlines).count,
-                oldString.components(separatedBy: .newlines).count)
+        switch call.name {
+        case "edit":
+            guard let oldString = call.arguments["oldString"]?.stringValue,
+                  let newString = call.arguments["newString"]?.stringValue else { return nil }
+            return (newString.components(separatedBy: .newlines).count,
+                    oldString.components(separatedBy: .newlines).count)
+        case "write":
+            guard let content = call.arguments["content"]?.stringValue else { return nil }
+            return (content.components(separatedBy: .newlines).count, 0)
+        default:
+            return nil
+        }
     }
 
     @ViewBuilder
     private var detail: some View {
         VStack(alignment: .leading, spacing: 8) {
             if call.name == "edit", let diff = editDiff {
+                DiffView(diff: diff)
+            } else if call.name == "write", let diff = writeDiff {
                 DiffView(diff: diff)
             } else if call.name == "bash", let command = call.arguments["command"]?.stringValue {
                 BashOutputBlock(command: command, output: call.output)
@@ -116,6 +125,14 @@ struct ToolCallRow: View {
         return (path,
                 oldString.components(separatedBy: .newlines),
                 newString.components(separatedBy: .newlines))
+    }
+
+    /// Write renders its content as all-added diff (opencode FileDiff on write).
+    private var writeDiff: (path: String, removed: [String], added: [String])? {
+        guard call.name == "write",
+              let path = call.arguments["path"]?.stringValue,
+              let content = call.arguments["content"]?.stringValue else { return nil }
+        return (path, [], content.components(separatedBy: .newlines))
     }
 }
 
