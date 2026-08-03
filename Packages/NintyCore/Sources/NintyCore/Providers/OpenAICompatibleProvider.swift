@@ -77,11 +77,19 @@ public struct OpenAICompatibleProvider: ModelProvider, Sendable {
                     )
                     var sse = SSEParser()
                     var chunks = ChatCompletionStreamParser()
-                    // bytes.lines decodes UTF-8 per line — byte-wise iteration would
-                    // split multi-byte chars and mangle them into mojibake.
-                    for try await line in bytes.lines {
+                    // Manual byte buffering: split on \n, decode UTF-8 per line.
+                    // Blank lines MUST reach the parser (SSE event delimiter) —
+                    // bytes.lines drops them and no event ever dispatches.
+                    // Byte-wise Character(UnicodeScalar) mangles multi-byte UTF-8.
+                    var lineBytes: [UInt8] = []
+                    lineBytes.reserveCapacity(512)
+                    for try await byte in bytes {
                         if Task.isCancelled { break }
-                        for event in sse.feed(line + "\n") {
+                        lineBytes.append(byte)
+                        guard byte == UInt8(ascii: "\n") else { continue }
+                        let line = String(decoding: lineBytes, as: UTF8.self)
+                        lineBytes.removeAll(keepingCapacity: true)
+                        for event in sse.feed(line) {
                             let result = chunks.handle(data: event.data)
                             result.events.forEach { continuation.yield($0) }
                             if result.done {
