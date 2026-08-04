@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 import NintyCore
 
-/// Tab strip capsule: full-width glass pill at the top of the detail area.
-/// Kept out of the window toolbar — NSToolbar principal items can't be
-/// full-bleed and expelled the trailing buttons into a floating overlay.
+/// Tab strip: scrollable tabs + new-tab button. Lives in the detail column's
+/// native toolbar as the principal item — the system owns sizing, so no
+/// fixed height here.
 struct TabStripView: View {
     @Environment(AppState.self) private var appState
 
@@ -36,37 +36,18 @@ struct TabStripView: View {
             NewTabButton()
         }
         .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .glassEffect(.regular, in: .capsule)
+        .frame(maxWidth: .infinity)
     }
 }
 
-/// Right-end capsule next to the tab strip: sidebar toggle + update +
-/// side panel. Lives outside the window toolbar so it can share the tab
-/// strip's row and glass style.
-struct DetailToolbarCapsule: View {
-    @Environment(AppState.self) private var appState
-    @Binding var columnVisibility: NavigationSplitViewVisibility
-
-    var body: some View {
-        HStack(spacing: 2) {
-            Button {
-                columnVisibility = columnVisibility == .all ? .detailOnly : .all
-            } label: {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 13))
-                    .foregroundStyle(columnVisibility == .all ? Theme.textBase : Theme.textMuted)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Toggle sidebar (⌃⌘S)")
-            UpdateButton()
+/// Side-panel action. Trailing `ToolbarItemGroup` in the detail toolbar —
+/// the system renders it as a native toolbar item. (No custom sidebar
+/// toggle: the system's built-in one lives in the sidebar column.)
+struct DetailToolbarItems: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
             SidePanelButton()
         }
-        .padding(.horizontal, 6)
-        .frame(height: 36)
-        .glassEffect(.regular, in: .capsule)
     }
 }
 
@@ -90,24 +71,9 @@ struct NewTabButton: View {
     }
 }
 
-/// Download/update icon (toolbar trailing). Opens releases page.
-struct UpdateButton: View {
-    var body: some View {
-        Button {
-            NSWorkspace.shared.open(URL(string: "https://github.com/KagChi/ninty-code/releases")!)
-        } label: {
-            Image(systemName: "arrow.down.circle")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textMuted)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Download latest release")
-    }
-}
-
-/// Right side panel toggle (⇧⌘R) — toolbar trailing, rightmost.
+/// Right side panel toggle (⇧⌘R) — toolbar trailing, rightmost. No custom
+/// styling: AppKit renders toolbar buttons with the same chrome as the
+/// system sidebar toggle on the leading side.
 struct SidePanelButton: View {
     @Environment(AppState.self) private var appState
 
@@ -116,12 +82,7 @@ struct SidePanelButton: View {
             appState.showSidePanel.toggle()
         } label: {
             Image(systemName: "sidebar.right")
-                .font(.system(size: 13))
-                .foregroundStyle(appState.showSidePanel ? Theme.textBase : Theme.textMuted)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .keyboardShortcut("r", modifiers: [.command, .shift])
         .help("Toggle side panel (⇧⌘R)")
     }
@@ -148,19 +109,19 @@ struct TabItem: View {
             // Project initial badge — always shown (mixed-project strip);
             // dimmed for foreign projects, spinner overlays while streaming.
             ZStack {
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(Theme.accent.opacity(chat.projectRoot == appState.projectRoot ? 1 : 0.45))
-                    .frame(width: 12, height: 12)
+                    .frame(width: 18, height: 18)
                     .overlay {
                         Text(chat.projectRoot.lastPathComponent.prefix(1).uppercased())
-                            .font(.system(size: 7, weight: .bold))
+                            .font(.system(size: 11, weight: .heavy))
                             .foregroundStyle(.white)
                     }
                 if chat.streaming {
                     ProgressView()
                         .controlSize(.mini)
                         .scaleEffect(0.5)
-                        .frame(width: 12, height: 12)
+                        .frame(width: 18, height: 18)
                 }
             }
             .help(chat.projectRoot.lastPathComponent)
@@ -187,11 +148,14 @@ struct TabItem: View {
                 .help("Close (⌘W)")
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .frame(maxWidth: 200)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .frame(maxWidth: 220)
+        // Toolbar items propose compact sizes — without this the ScrollView
+        // compresses pills and titles truncate mid-word.
+        .fixedSize()
         .background(isActive ? Theme.overlayPressed : (hovered ? Theme.overlayHover : .clear),
-                    in: .rect(cornerRadius: Theme.radiusSmall))
+                    in: .rect(cornerRadius: Theme.radiusMedium))
         .contentShape(Rectangle())
         .onTapGesture { appState.activateTab(chat) }
         .onHover { hovered = $0 }

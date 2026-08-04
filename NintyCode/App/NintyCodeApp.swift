@@ -30,56 +30,48 @@ struct NintyCodeApp: App {
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        // Native chrome shell: split view owns the window toolbar — sidebar
-        // toggle + search live above the glass sidebar column, tab strip +
-        // buttons are toolbar items. No custom titlebar (it fought the
-        // toolbar and kept vanishing).
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView()
+                .navigationSplitViewColumnWidth(260)
         } detail: {
-            VStack(spacing: 8) {
-                // Top row: full-width tab capsule + toolbar capsule. Both live
-                // outside the window toolbar — NSToolbar principal items can't
-                // be full-bleed and expelled the trailing buttons.
-                HStack(spacing: 8) {
-                    TabStripView()
-                    DetailToolbarCapsule(columnVisibility: $columnVisibility)
+            HStack(spacing: 0) {
+                ZStack {
+                    if let chat = appState.activeChat {
+                        ChatView(store: chat)
+                    } else {
+                        NewSessionView()
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                .raisedElevation(cornerRadius: 10)
 
-                HStack(spacing: 8) {
-                    ZStack {
-                        if let chat = appState.activeChat {
-                            ChatView(store: chat)
-                        } else {
-                            NewSessionView()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                    .raisedElevation(cornerRadius: 10)
-
-                    if appState.showSidePanel {
-                        SidePanelResizeHandle(width: Binding(
-                            get: { appState.sidePanelWidth },
-                            set: { appState.sidePanelWidth = $0 }
-                        ))
-                        SidePanelView(chat: appState.activeChat)
-                            .frame(width: appState.sidePanelWidth)
-                            .frame(maxHeight: .infinity)
-                            .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                            .raisedElevation(cornerRadius: 10)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
+                if appState.showSidePanel {
+                    SidePanelResizeHandle(width: Binding(
+                        get: { appState.sidePanelWidth },
+                        set: { appState.sidePanelWidth = $0 }
+                    ))
+                    SidePanelView(chat: appState.activeChat)
+                        .frame(width: appState.sidePanelWidth)
+                        .frame(maxHeight: .infinity)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                        .raisedElevation(cornerRadius: 10)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
             .padding(8)
             .background(Theme.bgDeep)
+            .background(ToolbarItemStretcher(itemID: "tabstrip"))
+            .toolbar {
+                ToolbarItem(id: "tabstrip", placement: .principal) {
+                    TabStripView()
+                }
+                DetailToolbarItems()
+            }
         }
-        .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
-        .background(Theme.bgDeep)
         .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
         .modalOverlay(isPresented: Binding(
             get: { appState.showModelDialog },

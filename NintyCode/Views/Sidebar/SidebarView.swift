@@ -1,10 +1,12 @@
 import SwiftUI
 import NintyCore
 
-/// Left sidebar: native List in a NavigationSplitView column — system liquid
-/// glass material. Projects sorted by name (stable order — no row jumping);
-/// clicking a project expands/collapses its sessions, the hover arrow button
-/// switches the active project.
+/// Left sidebar: native NavigationSplitView column — system traffic lights,
+/// native `.searchable` field, list material and hover all come from macOS.
+/// Only custom pieces: the "New session" capsule and the settings footer.
+/// Projects sorted by name (stable order — no row jumping); clicking a
+/// project expands/collapses its sessions, the hover arrow button switches
+/// the active project.
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @State private var query = ""
@@ -44,42 +46,62 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(projects.filter(isVisible), id: \.self) { url in
-                Section(isExpanded: expansionBinding(for: url)) {
-                    let projectSessions = sessions(for: url)
-                    if projectSessions.isEmpty {
-                        Text("No sessions yet")
-                            .font(Theme.tiny)
-                            .foregroundStyle(Theme.textFaint)
-                    } else {
-                        ForEach(projectSessions) { session in
-                            SidebarSessionRow(
-                                session: session,
-                                project: url,
-                                projectIsActive: url == appState.projectRoot
-                            )
+        VStack(spacing: 8) {
+            newSessionButton
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+
+            List {
+                ForEach(projects.filter(isVisible), id: \.self) { url in
+                    Section(isExpanded: expansionBinding(for: url)) {
+                        let projectSessions = sessions(for: url)
+                        if projectSessions.isEmpty {
+                            Text("No sessions yet")
+                                .font(Theme.tiny)
+                                .foregroundStyle(Theme.textFaint)
+                        } else {
+                            ForEach(projectSessions) { session in
+                                SidebarSessionRow(
+                                    session: session,
+                                    project: url,
+                                    projectIsActive: url == appState.projectRoot
+                                )
+                            }
                         }
+                    } header: {
+                        SidebarProjectHeader(
+                            project: url,
+                            isActive: url == appState.projectRoot
+                        )
                     }
-                } header: {
-                    SidebarProjectHeader(
-                        project: url,
-                        isActive: url == appState.projectRoot
-                    )
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .overlay {
+                if projects.isEmpty {
+                    Text("Open a project to start.")
+                        .font(Theme.small)
+                        .foregroundStyle(Theme.textFaint)
                 }
             }
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
         .searchable(text: $query, placement: .sidebar, prompt: "Search sessions…")
-        .overlay {
-            if projects.isEmpty {
-                Text("Open a project to start.")
-                    .font(Theme.small)
-                    .foregroundStyle(Theme.textFaint)
-            }
-        }
         .safeAreaInset(edge: .bottom) { footer }
+    }
+
+    /// Capsule matching the native search field above it.
+    private var newSessionButton: some View {
+        Button { appState.newChat() } label: {
+            Label("New session", systemImage: "plus")
+                .font(Theme.tiny.weight(.medium))
+                .foregroundStyle(Theme.textBase)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .background(Theme.accent.opacity(0.2), in: .capsule)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private var footer: some View {

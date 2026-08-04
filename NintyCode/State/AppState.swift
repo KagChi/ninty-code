@@ -233,10 +233,16 @@ final class AppState {
         pushTab(makeChat(sessionID: id))
     }
 
-    /// Sidebar: open a session from a non-active project — switches project first.
-    /// Agent/model restored from the sidebar cache (`reloadSessions` is async,
-    /// so `sessions` would miss on a fresh project switch).
+    /// Sidebar: open a session from any project. An existing tab for the
+    /// session wins (activate, never duplicate — tabs are mixed). Otherwise:
+    /// same project → openChat; foreign → switch project first. Agent/model
+    /// restored from the sidebar cache (`reloadSessions` is async, so
+    /// `sessions` would miss on a fresh project switch).
     func openSession(_ id: String, in project: URL) {
+        if let existing = openTabs.first(where: { $0.sessionID == id }) {
+            activateTab(existing)
+            return
+        }
         guard project != projectRoot else {
             openChat(id)
             return
@@ -256,6 +262,10 @@ final class AppState {
 
     private func pushTab(_ chat: ChatStore?) {
         guard let chat else { return }
+        if let existing = openTabs.first(where: { $0.sessionID == chat.sessionID }) {
+            activateTab(existing)
+            return
+        }
         openTabs.append(chat)
         activateTab(chat)
     }
