@@ -161,6 +161,9 @@ final class ChatStore {
             systemPrompt = await session.currentSystemPrompt
             if let loaded = try? await store.load(id: sessionID) {
                 self.metaCreated = true
+                if let inputTokens = loaded.meta.inputTokens {
+                    self.lastInputTokens = inputTokens
+                }
                 await session.restoreHistory(loaded.messages)
                 self.messages = loaded.messages.map(Self.displayMessage(from:))
             }
@@ -244,6 +247,8 @@ final class ChatStore {
         case .compacted:
             compacted = true
             messages.append(DisplayMessage(role: .assistant, text: "Compaction", isMarker: true))
+            // Header ring keeps a realistic post-compaction value instead of vanishing.
+            Task { lastInputTokens = await session.lastInputTokens }
         case .queueChanged(let queue):
             followups = queue
         case .revertStateChanged:
@@ -269,7 +274,10 @@ final class ChatStore {
             streaming = false
             pendingPermission = nil
             retry = nil
-            Task { lastUsage = await session.lastUsage }
+            Task {
+                lastUsage = await session.lastUsage
+                try? await store.updateUsage(inputTokens: input, sessionID: sessionID)
+            }
             onChange()
         }
     }

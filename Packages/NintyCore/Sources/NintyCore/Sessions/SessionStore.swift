@@ -7,14 +7,17 @@ public struct SessionMeta: Codable, Sendable, Identifiable, Equatable {
     public var model: String
     public var created: Date
     public var updated: Date
+    /// Last known input token count (header usage ring survives reloads).
+    public var inputTokens: Int?
 
-    public init(id: String, title: String, agentID: String, model: String, created: Date, updated: Date) {
+    public init(id: String, title: String, agentID: String, model: String, created: Date, updated: Date, inputTokens: Int? = nil) {
         self.id = id
         self.title = title
         self.agentID = agentID
         self.model = model
         self.created = created
         self.updated = updated
+        self.inputTokens = inputTokens
     }
 }
 
@@ -144,9 +147,17 @@ public actor SessionStore {
     }
 
     /// Load meta + full message history. Corrupt lines are skipped.
+    /// Mutable fields (title, selection, usage) come from the sidecar index —
+    /// the file's meta record keeps the original values.
     public func load(id: String) throws -> (meta: SessionMeta, messages: [Message])? {
-        let (meta, messages) = try readAll(id: id)
-        guard let meta else { return nil }
+        let (fileMeta, messages) = try readAll(id: id)
+        guard var meta = fileMeta else { return nil }
+        if let indexed = index[id] {
+            meta.title = indexed.title
+            meta.agentID = indexed.agentID
+            meta.model = indexed.model
+            meta.inputTokens = indexed.inputTokens
+        }
         return (meta, messages)
     }
 
@@ -225,6 +236,14 @@ public actor SessionStore {
         guard var meta = index[sessionID] else { return }
         meta.agentID = agentID
         meta.model = model
+        index[sessionID] = meta
+        saveIndex()
+    }
+
+    /// Persist last known input token count (sidecar index only).
+    public func updateUsage(inputTokens: Int, sessionID: String) throws {
+        guard var meta = index[sessionID] else { return }
+        meta.inputTokens = inputTokens
         index[sessionID] = meta
         saveIndex()
     }

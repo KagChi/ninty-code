@@ -28,6 +28,25 @@ struct SessionStoreTests {
         }
     }
 
+    @Test("usage persists in meta; old metas without it decode as nil")
+    func usageRoundtrip() async throws {
+        try await withStore { store, _ in
+            _ = try await store.create(id: "s1", title: "T", agentID: "build", model: "m")
+            try await store.updateUsage(inputTokens: 42_000, sessionID: "s1")
+            let loaded = try #require(await store.load(id: "s1"))
+            #expect(loaded.meta.inputTokens == 42_000)
+        }
+        // Meta JSON lacking inputTokens must still decode (backward compat).
+        let json = """
+        {"id":"x","title":"t","agentID":"build","model":"m",\
+        "created":"2026-01-01T00:00:00Z","updated":"2026-01-01T00:00:00Z"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let meta = try #require(try? decoder.decode(SessionMeta.self, from: Data(json.utf8)))
+        #expect(meta.inputTokens == nil)
+    }
+
     @Test("list sorts newest first, delete removes")
     func listDelete() async throws {
         try await withStore { store, _ in

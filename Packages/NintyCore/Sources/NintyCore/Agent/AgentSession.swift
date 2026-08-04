@@ -52,7 +52,8 @@ public actor AgentSession {
     private var systemPrompt: String
 
     private var history: [Message]
-    private var lastInputTokens = 0
+    /// Last known input tokens (post-compaction estimate after summarization).
+    public private(set) var lastInputTokens = 0
     /// Last assistant turn's full token accounting (context tab).
     public private(set) var lastUsage: TokenUsage?
     private var currentTask: Task<Void, Never>?
@@ -490,7 +491,21 @@ public actor AgentSession {
         guard !summary.isEmpty else { return }
         let tail = history.suffix(4)
         history = [.assistant("Conversation summary:\n\(summary)")] + tail
-        lastInputTokens = 0
+        // Post-compaction estimate (chars/4, same as context tab) so the header
+        // usage ring shows a realistic small value instead of disappearing.
+        let remainingChars = history.reduce(0) { total, message in
+            total + message.parts.reduce(0) { partTotal, part in
+                switch part {
+                case .text(let text): return partTotal + text.count
+                case .toolResult(_, _, let output, _): return partTotal + output.count
+                case .toolCall(_, _, let arguments):
+                    let count = (try? JSONEncoder().encode(arguments).count) ?? 0
+                    return partTotal + count
+                case .image(let dataURL): return partTotal + dataURL.count
+                }
+            }
+        }
+        lastInputTokens = remainingChars / 4
         continuation.yield(.compacted)
     }
 }
