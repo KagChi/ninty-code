@@ -1,34 +1,38 @@
 import AppKit
 import SwiftUI
 
-/// AppKit helper to make SwiftUI toolbar items flexible-width.
-/// SwiftUI doesn't expose NSToolbarItem.minSize/maxSize/autoresizingMask,
-/// so we reach in and set them manually. Three pieces are required:
-///  1. minSize/maxSize on the item (width range it may occupy)
-///  2. LOW content-hugging on the hosting view — SwiftUI hosting views hug
-///     their fitting size, which silently blocks growth even with huge maxSize
-///  3. autoresizingMask [.width] so the view follows the item's frame
-/// SwiftUI may rebuild toolbar items on state changes, so configuration is
-/// re-applied on staggered delays + window resize/key notifications.
+/// AppKit helper to size a SwiftUI toolbar item to the full available width.
+/// Why this exists: SwiftUI wraps the principal item in flexible spaces that
+/// absorb ALL free space, and exposes no API for item sizing. The only
+/// reliable lever is forcing the NSToolbarItem's min/max size directly.
+/// Width math: window width − leading reserve (sidebar column, passed in by
+/// the caller who knows columnVisibility) − sibling items (toggle, separator,
+/// trailing buttons; flexible spaces skipped) − insets. Recomputed on window
+/// resize, key-window events, and when the caller updates `leadingReserve`.
 struct ToolbarItemStretcher: NSViewRepresentable {
     let itemID: String
+    /// Width reserved at the toolbar's leading edge (sidebar column when
+    /// visible, 0 when collapsed — the toggle then joins the detail items).
+    let leadingReserve: CGFloat
 
-    func makeNSView(context: Context) -> NSView {
-        StretcherView(itemID: itemID)
+    func makeNSView(context: Context) -> StretcherView {
+        StretcherView(itemID: itemID, leadingReserve: leadingReserve)
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: StretcherView, context: Context) {
+        nsView.leadingReserve = leadingReserve
+        nsView.stretchItem()
+    }
 }
 
-private final class StretcherView: NSView {
+final class StretcherView: NSView {
     let itemID: String
+    var leadingReserve: CGFloat
     private var observers: [Any] = []
-    #if DEBUG
-    private var didLogItems = false
-    #endif
 
-    init(itemID: String) {
+    init(itemID: String, leadingReserve: CGFloat) {
         self.itemID = itemID
+        self.leadingReserve = leadingReserve
         super.init(frame: .zero)
     }
 
@@ -40,11 +44,14 @@ private final class StretcherView: NSView {
         super.viewDidMoveToWindow()
         guard let window else { return }
 
+        // Dark-only app: force the window's appearance so the fullscreen
+        // toolbar bar renders dark instead of the light aqua material.
+        window.appearance = NSAppearance(named: .darkAqua)
+
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
 
-        // Staggered attempts — toolbar construction finishes asynchronously,
-        // and SwiftUI may rebuild the item shortly after first layout.
+        // Staggered attempts — toolbar construction finishes asynchronously.
         for delay in [0.05, 0.3, 1.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.stretchItem()
@@ -63,43 +70,27 @@ private final class StretcherView: NSView {
         }
     }
 
-    private func stretchItem() {
-        guard let toolbar = window?.toolbar else { return }
+    func stretchItem() {
+        guard let window, let toolbar = window.toolbar else { return }
+        guard let item = toolbar.items.first(where: {
+            $0.itemIdentifier.rawValue.contains(itemID)
+        }) else { return }
 
-        #if DEBUG
-        if !didLogItems {
-            didLogItems = true
-            let ids = toolbar.items.map(\.itemIdentifier.rawValue).joined(separator: ", ")
-            print("[ToolbarItemStretcher] looking for '\(itemID)' in: \(ids)")
-        }
-        #endif
-
-        // Match by identifier (SwiftUI passes the id through, possibly prefixed).
-        if let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue.contains(itemID) }) {
-            configureItem(item)
-            return
+        // Siblings that consume width in the detail region: sidebar toggle
+        // (when sidebar collapsed), split-view separator, trailing buttons.
+        // Flexible spaces are skipped — they shrink to zero on their own.
+        var consumed = leadingReserve
+        for other in toolbar.items where other !== item {
+            if other.itemIdentifier == .flexibleSpace { continue }
+            consumed += other.view?.frame.width ?? 0
         }
 
-        // Fallback: widest middle item (principal position).
-        if toolbar.items.count >= 3 {
-            let candidates = Array(toolbar.items.dropFirst().dropLast())
-            if let item = candidates.max(by: { ($0.view?.frame.width ?? 0) < ($1.view?.frame.width ?? 0) }) {
-                configureItem(item)
-            }
-        }
-    }
-
-    private func configureItem(_ item: NSToolbarItem) {
-        let height = item.minSize.height
-        item.minSize = NSSize(width: 240, height: height)
-        item.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: height)
-
-        guard let view = item.view else { return }
-        // The critical piece: without low hugging, the hosting view refuses
-        // to grow past its fitting size no matter what maxSize says.
-        view.setContentHuggingPriority(.init(1), for: .horizontal)
-        view.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        view.autoresizingMask = [.width]
+        let width = max(window.frame.width - consumed - 24, 240)
+        item.minSize = NSSize(width: width, height: item.minSize.height)
+        item.maxSize = NSSize(width: width, height: item.maxSize.height)
+        item.view?.setContentHuggingPriority(.init(1), for: .horizontal)
+        item.view?.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        item.view?.autoresizingMask = [.width]
     }
 
     @MainActor

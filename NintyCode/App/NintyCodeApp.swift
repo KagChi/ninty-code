@@ -64,7 +64,10 @@ struct ContentView: View {
             }
             .padding(8)
             .background(Theme.bgDeep)
-            .background(ToolbarItemStretcher(itemID: "tabstrip"))
+            .background(ToolbarItemStretcher(
+                itemID: "tabstrip",
+                leadingReserve: columnVisibility == .all ? 261 : 0
+            ))
             .toolbar {
                 ToolbarItem(id: "tabstrip", placement: .principal) {
                     TabStripView()
@@ -72,6 +75,10 @@ struct ContentView: View {
                 DetailToolbarItems()
             }
         }
+        // Fullscreen paints the toolbar bar with the window's (light)
+        // appearance material — force our dark color + dark scheme instead.
+        .toolbarBackground(Theme.bgDeep, for: .windowToolbar)
+        .toolbarColorScheme(.dark, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
         .modalOverlay(isPresented: Binding(
             get: { appState.showModelDialog },
