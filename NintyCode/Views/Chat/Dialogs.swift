@@ -214,6 +214,12 @@ private struct ModalOverlay<Content: View>: ViewModifier {
                     .onTapGesture { isPresented = false }
                     .transition(.opacity)
                 content
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLarge))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.radiusLarge)
+                            .stroke(Theme.borderBase, lineWidth: 0.5)
+                    )
+                    .shadow(color: Theme.raisedShadow, radius: 24, y: 8)
                     .transition(.opacity)
                     .background(
                         // Esc still closes, like the sheets did.

@@ -533,6 +533,7 @@ struct SessionHeader: View {
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
         }
         .padding(.horizontal, 16)
