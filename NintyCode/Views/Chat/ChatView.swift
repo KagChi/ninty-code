@@ -463,6 +463,39 @@ private struct ChangedFileRow: View {
 
 
 
+/// opencode usage hover card: Cost / Usage / Tokens rows.
+private struct UsageCard: View {
+    let store: ChatStore
+
+    private var usageFraction: Double {
+        guard store.contextWindow > 0 else { return 0 }
+        return min(1, Double(store.lastInputTokens) / Double(store.contextWindow))
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            row("Cost", "$0.00")
+            row("Usage", "\(Int(usageFraction * 100))%")
+            row("Tokens", (store.lastUsage?.total ?? store.lastInputTokens).formatted())
+        }
+        .padding(12)
+        .frame(width: 190)
+        .background(Theme.bgBase)
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(Theme.caption)
+                .foregroundStyle(Theme.textMuted)
+            Spacer()
+            Text(value)
+                .font(Theme.captionMedium)
+                .foregroundStyle(Theme.textBase)
+        }
+    }
+}
+
 /// opencode v2 session header: editable title + context usage + overflow menu.
 struct SessionHeader: View {
     let store: ChatStore
@@ -471,7 +504,8 @@ struct SessionHeader: View {
     @State private var draftTitle = ""
 
     private var title: String {
-        appState.sessions.first { $0.id == store.sessionID }?.title ?? "New session"
+        let stored = appState.sessions.first { $0.id == store.sessionID }?.title
+        return stored?.isEmpty == false ? stored! : "New session"
     }
 
     private var contextFraction: Double {
@@ -501,9 +535,9 @@ struct SessionHeader: View {
 
             Spacer()
 
-            // Context usage meter (opencode SessionContextUsage).
-            if store.lastInputTokens > 0 {
-                HStack(spacing: 5) {
+            // Context usage meter (opencode SessionContextUsage) — always
+            // visible; defaults to 0% before any usage data exists.
+            HStack(spacing: 5) {
                     Circle()
                         .trim(from: 0, to: contextFraction)
                         .stroke(contextColor, lineWidth: 2)
@@ -514,8 +548,18 @@ struct SessionHeader: View {
                         .font(Theme.tiny)
                         .foregroundStyle(Theme.textFaint)
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(usageHovered ? Theme.overlayHover : .clear, in: .rect(cornerRadius: Theme.radiusSmall))
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    usageHovered = hovering
+                    usagePopover = hovering
+                }
+                .popover(isPresented: $usagePopover, arrowEdge: .bottom) {
+                    UsageCard(store: store)
+                }
                 .help("\(store.lastInputTokens.formatted()) / \(store.contextWindow.formatted()) tokens")
-            }
 
             Menu {
                 Button("Rename…") { startRename() }
@@ -548,6 +592,8 @@ struct SessionHeader: View {
     }
 
     @State private var titleHovered = false
+    @State private var usageHovered = false
+    @State private var usagePopover = false
 
     private func startRename() {
         draftTitle = title
