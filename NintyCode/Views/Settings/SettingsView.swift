@@ -35,7 +35,7 @@ struct SettingsDialog: View {
             content
         }
         .frame(width: 720, height: 480)
-        .background(Theme.bgBase)
+        .glassEffect(.regular, in: .rect(cornerRadius: Theme.radiusLarge))
         .onExitCommand { dismiss() }
     }
 
@@ -57,7 +57,6 @@ struct SettingsDialog: View {
         .padding(8)
         .frame(width: 170)
         .frame(maxHeight: .infinity)
-        .background(Theme.bgDeep)
     }
 
     private func sidebarRow(_ section: SettingsSection) -> some View {

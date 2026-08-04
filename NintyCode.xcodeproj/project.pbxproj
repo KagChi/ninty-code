@@ -9,12 +9,12 @@
 /* Begin PBXBuildFile section */
 		0CE060D310DA747F78D77993 /* MessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101DDE0D1213D26582255FB4 /* MessageView.swift */; };
 		0D274A81BEF0B12A62A8E69B /* NintyCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1DBB7BB224A670DDC38EE53C /* NintyCore */; };
+		11721D64733EB3F8A9F30F48 /* TabStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC078AAD80C9AB9D0E89984 /* TabStripView.swift */; };
+		1B075CA3A532DF52E13AEA8D /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBFB1ECC604F20EF488C358 /* SidebarView.swift */; };
 		333C73B5277824DF32E05307 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9349D4E39A86CD1A62F62345 /* AppState.swift */; };
 		33D8CE0C5DB86AC5365AEDD4 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 945032613CB81D306B36EC12 /* ChatStore.swift */; };
 		3758B8F40BD832142C2624C0 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC75492389A2793BF52A15E /* Theme.swift */; };
 		3EE77E1CA94F2B6D8EE8B4FF /* PermissionPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02A447C9850494386789819 /* PermissionPromptView.swift */; };
-		435372DCBDC88475632322A4 /* TitlebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3ACD5FE744EC27CF0C10792 /* TitlebarView.swift */; };
-		4D58B6F1C59DFE5DE7AA6D2A /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3497E9B27381BF24D06CC85D /* HomeView.swift */; };
 		4D9C04B841F29D387ACFF283 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64A903AFB9CC997C362CEC5 /* ChatView.swift */; };
 		5199200CD483138D651C5B0E /* ContextTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54DE053065874519B71B848 /* ContextTabView.swift */; };
 		6DACC1F7F9B6556E24613AFB /* PromptHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99644000F5673061085BD1E9 /* PromptHistory.swift */; };
@@ -33,7 +33,6 @@
 		101DDE0D1213D26582255FB4 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
 		122749A854105B274F6033E7 /* SidePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidePanelView.swift; sourceTree = "<group>"; };
 		17708EBF376022B1CEB684F9 /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
-		3497E9B27381BF24D06CC85D /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		50A049FCBA66A431BEAD0A85 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		68400302511C84A16456E751 /* NintyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NintyCodeApp.swift; sourceTree = "<group>"; };
 		9349D4E39A86CD1A62F62345 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -41,10 +40,11 @@
 		99644000F5673061085BD1E9 /* PromptHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptHistory.swift; sourceTree = "<group>"; };
 		9D6FE371C457BBD12F54BE8D /* Dialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dialogs.swift; sourceTree = "<group>"; };
 		A64A903AFB9CC997C362CEC5 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
-		B3ACD5FE744EC27CF0C10792 /* TitlebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarView.swift; sourceTree = "<group>"; };
 		B54DE053065874519B71B848 /* ContextTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextTabView.swift; sourceTree = "<group>"; };
 		BFC75492389A2793BF52A15E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		C67EC59E1D02A5CFA6EAE096 /* NintyCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NintyCore; path = Packages/NintyCore; sourceTree = SOURCE_ROOT; };
+		CEC078AAD80C9AB9D0E89984 /* TabStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStripView.swift; sourceTree = "<group>"; };
+		DBBFB1ECC604F20EF488C358 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		EBFEDE6172339CB0DC9C8EE4 /* NintyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NintyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F02A447C9850494386789819 /* PermissionPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionPromptView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -93,13 +93,13 @@
 		49E0792FD423C0A69E36054F /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				CEC078AAD80C9AB9D0E89984 /* TabStripView.swift */,
 				A9114AAE3572D7F8893CAE24 /* Chat */,
 				D6AEB83E099B9F3913F9EB44 /* Composer */,
-				57ED25875C1D2BC9B5240B20 /* Home */,
 				10C2E99C4FBE5EDB6309C28D /* Permissions */,
 				7D23520715C363677D2E8F11 /* Settings */,
+				7DFE0C59E1CC061616B8A398 /* Sidebar */,
 				C06CE66F074CDE460791F68B /* SidePanel */,
-				751DAFB3C80631DC4AB50710 /* Titlebar */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -112,28 +112,20 @@
 			path = Packages;
 			sourceTree = "<group>";
 		};
-		57ED25875C1D2BC9B5240B20 /* Home */ = {
-			isa = PBXGroup;
-			children = (
-				3497E9B27381BF24D06CC85D /* HomeView.swift */,
-			);
-			path = Home;
-			sourceTree = "<group>";
-		};
-		751DAFB3C80631DC4AB50710 /* Titlebar */ = {
-			isa = PBXGroup;
-			children = (
-				B3ACD5FE744EC27CF0C10792 /* TitlebarView.swift */,
-			);
-			path = Titlebar;
-			sourceTree = "<group>";
-		};
 		7D23520715C363677D2E8F11 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
 				50A049FCBA66A431BEAD0A85 /* SettingsView.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		7DFE0C59E1CC061616B8A398 /* Sidebar */ = {
+			isa = PBXGroup;
+			children = (
+				DBBFB1ECC604F20EF488C358 /* SidebarView.swift */,
+			);
+			path = Sidebar;
 			sourceTree = "<group>";
 		};
 		83A7D64C290F9176E35E0572 /* State */ = {
@@ -267,7 +259,6 @@
 				F16341C833A5F519D549BC5A /* ComposerView.swift in Sources */,
 				5199200CD483138D651C5B0E /* ContextTabView.swift in Sources */,
 				CAC2ADB8EDE8A3306A57CDF4 /* Dialogs.swift in Sources */,
-				4D58B6F1C59DFE5DE7AA6D2A /* HomeView.swift in Sources */,
 				E0AA30BB997A73BBA1B89902 /* MarkdownText.swift in Sources */,
 				0CE060D310DA747F78D77993 /* MessageView.swift in Sources */,
 				EBBAC666568A5264CF41FC78 /* NintyCodeApp.swift in Sources */,
@@ -275,8 +266,9 @@
 				6DACC1F7F9B6556E24613AFB /* PromptHistory.swift in Sources */,
 				FDE2F6E32C1A7C622878BED2 /* SettingsView.swift in Sources */,
 				C36ABEF37FBFEFCCB7862162 /* SidePanelView.swift in Sources */,
+				1B075CA3A532DF52E13AEA8D /* SidebarView.swift in Sources */,
+				11721D64733EB3F8A9F30F48 /* TabStripView.swift in Sources */,
 				3758B8F40BD832142C2624C0 /* Theme.swift in Sources */,
-				435372DCBDC88475632322A4 /* TitlebarView.swift in Sources */,
 				F04B502AD8F915D11ED4E01D /* ToolCallCard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

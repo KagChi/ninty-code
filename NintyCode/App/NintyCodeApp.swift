@@ -13,8 +13,8 @@ struct NintyCodeApp: App {
                 .preferredColorScheme(.dark)
                 .onAppear { appState.bootstrap() }
         }
-        // opencode desktop parity: hidden native titlebar, custom TitlebarView
-        // at true window top with traffic lights overlapping (Electron hiddenInset).
+        // Hidden titlebar + split view toolbar: unified compact chrome with
+        // inline traffic lights; tabs live in the toolbar (principal).
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 750)
         .commands {
@@ -30,24 +30,26 @@ struct NintyCodeApp: App {
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
-        // opencode v2 shell: no left sidebar — titlebar + card on bg-deep,
-        // optional review side panel on the right (⇧⌘R).
-        VStack(spacing: 0) {
-            TitlebarView()
+        // Native chrome shell: split view owns the window toolbar — sidebar
+        // toggle + search live above the glass sidebar column, tab strip +
+        // buttons are toolbar items. No custom titlebar (it fought the
+        // toolbar and kept vanishing).
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView()
+        } detail: {
             HStack(spacing: 8) {
                 ZStack {
-                    if appState.showHome {
-                        HomeView()
-                    } else if let chat = appState.activeChat {
+                    if let chat = appState.activeChat {
                         ChatView(store: chat)
                     } else {
                         NewSessionView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.bgBase, in: .rect(cornerRadius: 10))
+                .glassEffect(.regular, in: .rect(cornerRadius: 10))
                 .raisedElevation(cornerRadius: 10)
 
                 if appState.showSidePanel {
@@ -58,15 +60,26 @@ struct ContentView: View {
                     SidePanelView(chat: appState.activeChat)
                         .frame(width: appState.sidePanelWidth)
                         .frame(maxHeight: .infinity)
-                        .background(Theme.bgBase, in: .rect(cornerRadius: 10))
+                        .glassEffect(.regular, in: .rect(cornerRadius: 10))
                         .raisedElevation(cornerRadius: 10)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
-            .padding(.init(top: 0, leading: 8, bottom: 8, trailing: 8))
+            .padding(8)
+            .background(Theme.bgDeep)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    TabStripView()
+                }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    NewTabButton()
+                    UpdateButton()
+                    SidePanelButton()
+                }
+            }
         }
+        .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
         .background(Theme.bgDeep)
-        .ignoresSafeArea(.all, edges: .top)
         .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
         .modalOverlay(isPresented: Binding(
             get: { appState.showModelDialog },
@@ -110,8 +123,14 @@ private struct SidePanelResizeHandle: View {
                         let start = dragStart ?? width
                         dragStart = start
                         // Handle sits on the panel's left edge: dragging left widens.
-                        width = (start - value.translation.width)
-                            .clamped(to: AppState.sidePanelWidthRange)
+                        // Bypass the showSidePanel implicit animation — animating
+                        // per-drag-event makes the handle feel stuck.
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            width = (start - value.translation.width)
+                                .clamped(to: AppState.sidePanelWidthRange)
+                        }
                     }
                     .onEnded { _ in dragStart = nil }
             )
@@ -186,6 +205,5 @@ struct NewSessionView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bgDeep)
     }
 }

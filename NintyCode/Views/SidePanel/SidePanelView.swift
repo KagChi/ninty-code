@@ -47,7 +47,6 @@ struct SidePanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bgBase)
         .task { await reload() }
         .onChange(of: chat?.streaming) { _, streaming in
             // Refresh when a turn finishes — agent edits land on disk during the turn.
@@ -129,9 +128,9 @@ struct SidePanelView: View {
         } else {
             HSplitView {
                 fileList
-                    .frame(minWidth: 170, idealWidth: 200, maxWidth: 260)
+                    .frame(minWidth: 140, idealWidth: 180, maxWidth: 240)
                 diffPreview
-                    .frame(minWidth: 240)
+                    .frame(minWidth: 180)
             }
         }
     }

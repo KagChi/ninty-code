@@ -19,8 +19,10 @@ final class AppState {
     var activeChat: ChatStore?
     /// v2 tabs: open chats kept alive in memory (background streams continue).
     var openTabs: [ChatStore] = []
-    /// Home overlay (⌘B) — v2 replaces the sidebar with this.
-    var showHome = false
+    /// Sidebar session cache, keyed by project root (all recents preloaded).
+    var sessionsByProject: [URL: [SessionMeta]] = [:]
+    /// Sidebar projects showing their session list.
+    var expandedProjects: Set<URL> = []
 
     // Cached project file paths (for @ mentions) — loaded once per project.
     var projectFiles: [String] = []
@@ -48,7 +50,7 @@ final class AppState {
     }() {
         didSet { UserDefaults.standard.set(Double(sidePanelWidth), forKey: "sidePanelWidth") }
     }
-    static let sidePanelWidthRange: ClosedRange<CGFloat> = 360...960
+    static let sidePanelWidthRange: ClosedRange<CGFloat> = 320...960
     /// In-app settings dialog (opencode dialog-settings — no native Settings window).
     var showSettings = false
     var settingsSection: SettingsSection = .general
@@ -72,9 +74,8 @@ final class AppState {
             .map { URL(fileURLWithPath: $0) }
         if let last = UserDefaults.standard.url(forKey: "lastProject") {
             openProject(last)
-        } else {
-            showHome = true
         }
+        preloadAllProjectSessions()
     }
 
     // MARK: - Project
@@ -119,7 +120,8 @@ final class AppState {
         for tab in openTabs { tab.teardown() }
         openTabs = []
         activeChat = nil
-        showHome = true
+        expandedProjects.insert(url)
+        preloadAllProjectSessions()
     }
 
     /// Re-read config + rebuild merged registry (after settings edits). Keeps active chat.
@@ -165,6 +167,27 @@ final class AppState {
         Task { [weak self] in
             let metas = (try? await store.list()) ?? []
             self?.sessions = metas
+            self?.sessionsByProject[projectRoot] = metas
+        }
+    }
+
+    /// Sidebar: load sessions for every known project into `sessionsByProject`.
+    /// Detached — SessionStore IO must not block the main actor.
+    func preloadAllProjectSessions() {
+        var projects = recentProjects
+        if let projectRoot, !projects.contains(projectRoot) { projects.insert(projectRoot, at: 0) }
+        Task.detached(priority: .utility) { [weak self] in
+            var cache: [URL: [SessionMeta]] = [:]
+            for project in projects {
+                cache[project] = (try? await SessionStore(projectRoot: project).list()) ?? []
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.sessionsByProject = cache
+                if let projectRoot, let metas = cache[projectRoot] {
+                    self.sessions = metas
+                }
+            }
         }
     }
 
@@ -187,10 +210,30 @@ final class AppState {
     func openChat(_ id: String) {
         if let existing = openTabs.first(where: { $0.sessionID == id }) {
             activeChat = existing
-            showHome = false
             return
         }
         if let meta = sessions.first(where: { $0.id == id }) {
+            if let agent = agents.first(where: { $0.id == meta.agentID }) {
+                selectedAgentID = agent.id
+            }
+            if ProviderRegistry.split(meta.model) != nil {
+                selectedModel = meta.model
+            }
+        }
+        pushTab(makeChat(sessionID: id))
+    }
+
+    /// Sidebar: open a session from a non-active project — switches project first.
+    /// Agent/model restored from the sidebar cache (`reloadSessions` is async,
+    /// so `sessions` would miss on a fresh project switch).
+    func openSession(_ id: String, in project: URL) {
+        guard project != projectRoot else {
+            openChat(id)
+            return
+        }
+        let meta = sessionsByProject[project]?.first { $0.id == id }
+        openProject(project)
+        if let meta {
             if let agent = agents.first(where: { $0.id == meta.agentID }) {
                 selectedAgentID = agent.id
             }
@@ -205,7 +248,6 @@ final class AppState {
         guard let chat else { return }
         openTabs.append(chat)
         activateTab(chat)
-        showHome = false
     }
 
     func activateTab(_ chat: ChatStore) {
@@ -230,7 +272,6 @@ final class AppState {
             } else {
                 activeChat = nil
                 syncActiveFlags()
-                showHome = true
             }
         }
     }
