@@ -61,6 +61,8 @@ final class AppState {
     private let configLoader = ConfigLoader()
     private var baseRegistry: ProviderRegistry?
     private var mcpManager: MCPManager?
+    /// Keep-alive MCP managers keyed by project root (mixed-project tabs).
+    private var mcpManagers: [URL: MCPManager] = [:]
 
     var selectedAgent: Agent {
         agents.first { $0.id == selectedAgentID } ?? .build
@@ -116,10 +118,8 @@ final class AppState {
         startMCP()
         reloadSessions()
         loadProjectFiles()
-        // New project: drop all tabs (sessions belong to the old project).
-        for tab in openTabs { tab.teardown() }
-        openTabs = []
-        activeChat = nil
+        // Tabs survive project switches (mixed-project tab strip) — each
+        // ChatStore carries its own project/provider/MCP references.
         expandedProjects.insert(url)
         preloadAllProjectSessions()
     }
@@ -131,6 +131,10 @@ final class AppState {
             ?? ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: projectRoot)
         agents = Agent.all(custom: resolved?.config.agents ?? [:])
         registry = baseRegistry?.merging(config: resolved?.config ?? NintyConfig())
+        // Config may change MCP servers — rebuild this project's manager.
+        if let old = mcpManagers.removeValue(forKey: projectRoot) {
+            Task { await old.stopAll() }
+        }
         startMCP()
     }
 
@@ -162,12 +166,18 @@ final class AppState {
     // MARK: - Sessions
 
     func reloadSessions() {
-        guard let projectRoot else { return }
-        let store = SessionStore(projectRoot: projectRoot)
+        if let projectRoot { reloadSessions(for: projectRoot) }
+    }
+
+    /// Refresh one project's session cache; also updates `sessions` when it
+    /// is the active project.
+    func reloadSessions(for project: URL) {
+        let store = SessionStore(projectRoot: project)
         Task { [weak self] in
             let metas = (try? await store.list()) ?? []
-            self?.sessions = metas
-            self?.sessionsByProject[projectRoot] = metas
+            guard let self else { return }
+            self.sessionsByProject[project] = metas
+            if project == self.projectRoot { self.sessions = metas }
         }
     }
 
@@ -209,7 +219,7 @@ final class AppState {
     /// Already open in a tab → focus that tab instead of a second instance.
     func openChat(_ id: String) {
         if let existing = openTabs.first(where: { $0.sessionID == id }) {
-            activeChat = existing
+            activateTab(existing)
             return
         }
         if let meta = sessions.first(where: { $0.id == id }) {
@@ -251,6 +261,10 @@ final class AppState {
     }
 
     func activateTab(_ chat: ChatStore) {
+        // Foreign tab: switch project context on the fly, tab stays alive.
+        if chat.projectRoot != projectRoot {
+            openProject(chat.projectRoot)
+        }
         activeChat = chat
         syncActiveFlags()
         chat.hasUnread = false
@@ -360,7 +374,7 @@ final class AppState {
                 projectRoot: projectRoot,
                 projectInstructions: resolved.projectInstructions,
                 mcpManager: mcpManager,
-                onChange: { [weak self] in self?.reloadSessions() }
+                onChange: { [weak self] in self?.reloadSessions(for: projectRoot) }
             )
         } catch {
             lastError = error.localizedDescription
@@ -371,20 +385,28 @@ final class AppState {
     // MARK: - MCP
 
     private func startMCP() {
-        // Stop previous manager's spawned server processes before replacing.
-        if let old = mcpManager {
-            Task { await old.stopAll() }
-        }
+        guard let projectRoot else { return }
         let configs = resolved?.config.mcp ?? [:]
         guard !configs.isEmpty else {
             mcpManager = nil
             mcpStatuses = [:]
             return
         }
-        let manager = MCPManager(configs: configs)
+        // Keep-alive: managers are cached per project so foreign tabs never
+        // lose their MCP servers on a project switch. Processes die with app.
+        let manager: MCPManager
+        let isNew: Bool
+        if let cached = mcpManagers[projectRoot] {
+            manager = cached
+            isNew = false
+        } else {
+            manager = MCPManager(configs: configs)
+            mcpManagers[projectRoot] = manager
+            isNew = true
+        }
         mcpManager = manager
         Task { [weak self] in
-            await manager.startAll()
+            if isNew { await manager.startAll() }
             var statuses: [String: MCPServerStatus] = [:]
             for name in await manager.serverNames {
                 statuses[name] = await manager.status(for: name)

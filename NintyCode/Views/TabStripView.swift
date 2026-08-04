@@ -2,30 +2,71 @@ import AppKit
 import SwiftUI
 import NintyCore
 
-/// Tab strip hosted in the window toolbar (principal placement). Scrollable
-/// with auto-scroll to the active tab; capped width so it can't starve the
-/// trailing toolbar buttons.
+/// Tab strip capsule: full-width glass pill at the top of the detail area.
+/// Kept out of the window toolbar — NSToolbar principal items can't be
+/// full-bleed and expelled the trailing buttons into a floating overlay.
 struct TabStripView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(appState.openTabs, id: \.sessionID) { chat in
-                        TabItem(chat: chat)
-                            .id(chat.sessionID)
+        HStack(spacing: 6) {
+            if appState.openTabs.isEmpty {
+                Text("No open tabs")
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.textFaint)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(appState.openTabs, id: \.sessionID) { chat in
+                                TabItem(chat: chat)
+                                    .id(chat.sessionID)
+                            }
+                        }
+                        .padding(.horizontal, 2)
+                    }
+                    .onChange(of: appState.activeChat?.sessionID) {
+                        if let id = appState.activeChat?.sessionID {
+                            withAnimation { proxy.scrollTo(id) }
+                        }
                     }
                 }
-                .padding(.horizontal, 2)
             }
-            .onChange(of: appState.activeChat?.sessionID) {
-                if let id = appState.activeChat?.sessionID {
-                    withAnimation { proxy.scrollTo(id) }
-                }
-            }
+            NewTabButton()
         }
-        .frame(minWidth: 160, maxWidth: 520)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, minHeight: 36)
+        .glassEffect(.regular, in: .capsule)
+    }
+}
+
+/// Right-end capsule next to the tab strip: sidebar toggle + update +
+/// side panel. Lives outside the window toolbar so it can share the tab
+/// strip's row and glass style.
+struct DetailToolbarCapsule: View {
+    @Environment(AppState.self) private var appState
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Button {
+                columnVisibility = columnVisibility == .all ? .detailOnly : .all
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 13))
+                    .foregroundStyle(columnVisibility == .all ? Theme.textBase : Theme.textMuted)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Toggle sidebar (⌃⌘S)")
+            UpdateButton()
+            SidePanelButton()
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 36)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 
@@ -104,18 +145,25 @@ struct TabItem: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Agent-colored avatar square (v2 SessionTabAvatar).
-            RoundedRectangle(cornerRadius: 3)
-                .fill(chat.streaming ? Theme.agentColor(chat.agent.id) : Theme.layer03)
-                .frame(width: 12, height: 12)
-                .overlay {
-                    if chat.streaming {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .scaleEffect(0.5)
-                            .frame(width: 12, height: 12)
+            // Project initial badge — always shown (mixed-project strip);
+            // dimmed for foreign projects, spinner overlays while streaming.
+            ZStack {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Theme.accent.opacity(chat.projectRoot == appState.projectRoot ? 1 : 0.45))
+                    .frame(width: 12, height: 12)
+                    .overlay {
+                        Text(chat.projectRoot.lastPathComponent.prefix(1).uppercased())
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.white)
                     }
+                if chat.streaming {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.5)
+                        .frame(width: 12, height: 12)
                 }
+            }
+            .help(chat.projectRoot.lastPathComponent)
             Text(title)
                 .font(Theme.smallMedium)
                 .foregroundStyle(isActive ? Theme.textBase : Theme.textFaint)

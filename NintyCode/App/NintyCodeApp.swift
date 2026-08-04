@@ -40,43 +40,43 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView()
         } detail: {
-            HStack(spacing: 8) {
-                ZStack {
-                    if let chat = appState.activeChat {
-                        ChatView(store: chat)
-                    } else {
-                        NewSessionView()
-                    }
+            VStack(spacing: 8) {
+                // Top row: full-width tab capsule + toolbar capsule. Both live
+                // outside the window toolbar — NSToolbar principal items can't
+                // be full-bleed and expelled the trailing buttons.
+                HStack(spacing: 8) {
+                    TabStripView()
+                    DetailToolbarCapsule(columnVisibility: $columnVisibility)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                .raisedElevation(cornerRadius: 10)
 
-                if appState.showSidePanel {
-                    SidePanelResizeHandle(width: Binding(
-                        get: { appState.sidePanelWidth },
-                        set: { appState.sidePanelWidth = $0 }
-                    ))
-                    SidePanelView(chat: appState.activeChat)
-                        .frame(width: appState.sidePanelWidth)
-                        .frame(maxHeight: .infinity)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                        .raisedElevation(cornerRadius: 10)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                HStack(spacing: 8) {
+                    ZStack {
+                        if let chat = appState.activeChat {
+                            ChatView(store: chat)
+                        } else {
+                            NewSessionView()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                    .raisedElevation(cornerRadius: 10)
+
+                    if appState.showSidePanel {
+                        SidePanelResizeHandle(width: Binding(
+                            get: { appState.sidePanelWidth },
+                            set: { appState.sidePanelWidth = $0 }
+                        ))
+                        SidePanelView(chat: appState.activeChat)
+                            .frame(width: appState.sidePanelWidth)
+                            .frame(maxHeight: .infinity)
+                            .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                            .raisedElevation(cornerRadius: 10)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
             }
             .padding(8)
             .background(Theme.bgDeep)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    TabStripView()
-                }
-                ToolbarItemGroup(placement: .primaryAction) {
-                    NewTabButton()
-                    UpdateButton()
-                    SidePanelButton()
-                }
-            }
         }
         .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
         .background(Theme.bgDeep)
@@ -99,7 +99,9 @@ struct ContentView: View {
         )) {
             SettingsDialog().environment(appState)
         }
-        .background(GlobalKeybinds())
+        .background(GlobalKeybinds(toggleSidebar: {
+            columnVisibility = columnVisibility == .all ? .detailOnly : .all
+        }))
     }
 }
 
@@ -146,9 +148,12 @@ private extension Comparable {
 /// App-wide keybinds (opencode desktop map).
 struct GlobalKeybinds: View {
     @Environment(AppState.self) private var appState
+    var toggleSidebar: () -> Void = {}
 
     var body: some View {
         ZStack {
+            Button("") { toggleSidebar() }
+                .keyboardShortcut("s", modifiers: [.control, .command])
             Button("") { appState.cycleAgent() }
                 .keyboardShortcut(".", modifiers: .command)
             Button("") { appState.cycleAgent(reverse: true) }

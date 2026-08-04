@@ -156,13 +156,12 @@ private struct SidebarProjectHeader: View {
     }
 }
 
-/// Session row: status avatar + title, opens as tab.
+/// Session row: status indicator + title, opens as tab.
 private struct SidebarSessionRow: View {
     @Environment(AppState.self) private var appState
     let session: SessionMeta
     let project: URL
     let projectIsActive: Bool
-    @State private var hovered = false
 
     private var openTab: ChatStore? {
         guard projectIsActive else { return nil }
@@ -189,14 +188,9 @@ private struct SidebarSessionRow: View {
                 .foregroundStyle(Theme.textBase)
                 .lineLimit(1)
             Spacer()
-            Text(session.updated, style: .relative)
-                .font(Theme.tiny)
-                .foregroundStyle(Theme.textFaint)
-                .opacity(hovered ? 1 : 0)
         }
         .contentShape(Rectangle())
         .onTapGesture { openSession() }
-        .onHover { hovered = $0 }
         .contextMenu {
             Button("Open") { openSession() }
             if projectIsActive {
