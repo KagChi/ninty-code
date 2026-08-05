@@ -665,6 +665,49 @@ final class AppState {
         }
     }
 
+    /// Execute any bridged `graph:*` tool for the active workspace and parse
+    /// its JSON output. The `workspace` param every graph-mcp tool requires is
+    /// injected automatically; caller args win on conflict.
+    func callGraphTool(_ name: String, _ args: [String: JSONValue] = [:]) async -> Result<JSONValue, GraphToolError> {
+        guard let workspace, let manager = mcpManagers[workspace.id] else {
+            return .failure(.serverUnavailable)
+        }
+        guard let tool = await manager.bridgedTools().first(where: { $0.name == "graph:\(name)" }) else {
+            return .failure(.toolNotBridged("graph:\(name)"))
+        }
+        var merged = args
+        if merged["workspace"] == nil { merged["workspace"] = .string(workspace.id) }
+        do {
+            let result = try await tool.execute(
+                .object(merged),
+                ctx: ToolContext(projectRoots: workspace.folders, sessionID: "graph-ui")
+            )
+            guard !result.isError else { return .failure(.toolFailed(result.output)) }
+            guard let data = result.output.data(using: .utf8) else {
+                return .failure(.invalidOutput("Invalid UTF-8 in tool output"))
+            }
+            do {
+                return .success(try JSONDecoder().decode(JSONValue.self, from: data))
+            } catch {
+                return .failure(.invalidOutput("JSON decode failed: \(error.localizedDescription)"))
+            }
+        } catch {
+            return .failure(.toolFailed(error.localizedDescription))
+        }
+    }
+
+    /// Whether a graph server is bridged for the active workspace.
+    func graphToolAvailable() async -> Bool {
+        guard let workspace, let manager = mcpManagers[workspace.id] else { return false }
+        return await manager.bridgedTools().contains { $0.name == "graph:graph_subgraph" }
+    }
+
+    /// Manual resync: force re-extract + re-upsert every source file.
+    func resyncGraph() async {
+        guard let workspace else { return }
+        _ = await ensureGraphSync().syncFull(workspace: workspace.id, roots: workspace.folders, force: true)
+    }
+
     // MARK: - Settings
 
     func saveAPIKey(_ key: String, for provider: String) {
@@ -683,5 +726,24 @@ final class AppState {
 extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+/// Failure of a bridged `graph:*` tool call, surfaced in the Graph tab.
+enum GraphToolError: Error, LocalizedError {
+    case serverUnavailable
+    case toolNotBridged(String)
+    case toolFailed(String)
+    case invalidOutput(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .serverUnavailable:
+            "No graph server connected for this workspace"
+        case .toolNotBridged(let name):
+            "Tool \(name) is not bridged"
+        case .toolFailed(let message), .invalidOutput(let message):
+            message
+        }
     }
 }

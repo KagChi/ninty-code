@@ -19,6 +19,7 @@
 		5199200CD483138D651C5B0E /* ContextTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54DE053065874519B71B848 /* ContextTabView.swift */; };
 		52FDCA75144CAEF6B9D9C315 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517832FD756406085D0CEC6C /* WindowChrome.swift */; };
 		6DACC1F7F9B6556E24613AFB /* PromptHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99644000F5673061085BD1E9 /* PromptHistory.swift */; };
+		73A1F76BEE7E33351B9B9182 /* GraphTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BD559F976A7DF517041C53 /* GraphTabView.swift */; };
 		C36ABEF37FBFEFCCB7862162 /* SidePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122749A854105B274F6033E7 /* SidePanelView.swift */; };
 		CAC2ADB8EDE8A3306A57CDF4 /* Dialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6FE371C457BBD12F54BE8D /* Dialogs.swift */; };
 		E0AA30BB997A73BBA1B89902 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17708EBF376022B1CEB684F9 /* MarkdownText.swift */; };
@@ -39,6 +40,7 @@
 		68400302511C84A16456E751 /* NintyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NintyCodeApp.swift; sourceTree = "<group>"; };
 		9349D4E39A86CD1A62F62345 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		945032613CB81D306B36EC12 /* ChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStore.swift; sourceTree = "<group>"; };
+		97BD559F976A7DF517041C53 /* GraphTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphTabView.swift; sourceTree = "<group>"; };
 		99644000F5673061085BD1E9 /* PromptHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptHistory.swift; sourceTree = "<group>"; };
 		9D6FE371C457BBD12F54BE8D /* Dialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dialogs.swift; sourceTree = "<group>"; };
 		A64A903AFB9CC997C362CEC5 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
@@ -180,6 +182,7 @@
 			isa = PBXGroup;
 			children = (
 				B54DE053065874519B71B848 /* ContextTabView.swift */,
+				97BD559F976A7DF517041C53 /* GraphTabView.swift */,
 				122749A854105B274F6033E7 /* SidePanelView.swift */,
 			);
 			path = SidePanel;
@@ -262,6 +265,7 @@
 				F16341C833A5F519D549BC5A /* ComposerView.swift in Sources */,
 				5199200CD483138D651C5B0E /* ContextTabView.swift in Sources */,
 				CAC2ADB8EDE8A3306A57CDF4 /* Dialogs.swift in Sources */,
+				73A1F76BEE7E33351B9B9182 /* GraphTabView.swift in Sources */,
 				E0AA30BB997A73BBA1B89902 /* MarkdownText.swift in Sources */,
 				0CE060D310DA747F78D77993 /* MessageView.swift in Sources */,
 				EBBAC666568A5264CF41FC78 /* NintyCodeApp.swift in Sources */,
