@@ -16,6 +16,7 @@
 		33D8CE0C5DB86AC5365AEDD4 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 945032613CB81D306B36EC12 /* ChatStore.swift */; };
 		3758B8F40BD832142C2624C0 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC75492389A2793BF52A15E /* Theme.swift */; };
 		3EE77E1CA94F2B6D8EE8B4FF /* PermissionPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02A447C9850494386789819 /* PermissionPromptView.swift */; };
+		4932083D2421EF469D995410 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 2A688562DCB7D0F375936CC8 /* AppIcon.icon */; };
 		4D9C04B841F29D387ACFF283 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64A903AFB9CC997C362CEC5 /* ChatView.swift */; };
 		5199200CD483138D651C5B0E /* ContextTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54DE053065874519B71B848 /* ContextTabView.swift */; };
 		52FDCA75144CAEF6B9D9C315 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517832FD756406085D0CEC6C /* WindowChrome.swift */; };
@@ -37,6 +38,7 @@
 		101DDE0D1213D26582255FB4 /* MessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageView.swift; sourceTree = "<group>"; };
 		122749A854105B274F6033E7 /* SidePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidePanelView.swift; sourceTree = "<group>"; };
 		17708EBF376022B1CEB684F9 /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
+		2A688562DCB7D0F375936CC8 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		50A049FCBA66A431BEAD0A85 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		517832FD756406085D0CEC6C /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
 		68400302511C84A16456E751 /* NintyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NintyCodeApp.swift; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 		B2FFD6F323A0893AA2F0033E /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				2A688562DCB7D0F375936CC8 /* AppIcon.icon */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -210,6 +213,7 @@
 			buildConfigurationList = 5C609F4908B6655FDE96F12B /* Build configuration list for PBXNativeTarget "NintyCode" */;
 			buildPhases = (
 				9B1F41D8F54D3C8525974614 /* Sources */,
+				BA20096991D3E80435CB5683 /* Resources */,
 				FE0BF22BD7EC7636A01DEC8B /* Frameworks */,
 			);
 			buildRules = (
@@ -260,6 +264,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		BA20096991D3E80435CB5683 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4932083D2421EF469D995410 /* AppIcon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		9B1F41D8F54D3C8525974614 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -302,7 +317,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "ninty-code";
+				INFOPLIST_KEY_CFBundleDisplayName = NintyCode;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT © 2026 kagchi";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -387,7 +402,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "ninty-code";
+				INFOPLIST_KEY_CFBundleDisplayName = NintyCode;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "MIT © 2026 kagchi";
 				LD_RUNPATH_SEARCH_PATHS = (

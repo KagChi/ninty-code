@@ -33,23 +33,27 @@ public struct MCPServerConfig: Codable, Sendable, Equatable {
     public var url: String?
     /// HTTP transport: extra request headers (e.g. Authorization Bearer).
     public var headers: [String: String]?
+    /// Disabled servers stay in config but are never connected.
+    public var enabled: Bool
 
     public init(
         command: String? = nil,
         args: [String] = [],
         env: [String: String] = [:],
         url: String? = nil,
-        headers: [String: String]? = nil
+        headers: [String: String]? = nil,
+        enabled: Bool = true
     ) {
         self.command = command
         self.args = args
         self.env = env
         self.url = url
         self.headers = headers
+        self.enabled = enabled
     }
 
     private enum CodingKeys: String, CodingKey {
-        case command, args, env, url, headers
+        case command, args, env, url, headers, enabled
     }
 
     public init(from decoder: any Decoder) throws {
@@ -59,6 +63,7 @@ public struct MCPServerConfig: Codable, Sendable, Equatable {
         env = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
         url = try container.decodeIfPresent(String.self, forKey: .url)
         headers = try container.decodeIfPresent([String: String].self, forKey: .headers)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 
     /// Human-readable one-liner for lists/settings.

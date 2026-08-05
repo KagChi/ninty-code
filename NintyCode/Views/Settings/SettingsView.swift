@@ -214,11 +214,13 @@ struct ProvidersPane: View {
     @Environment(AppState.self) private var appState
     @State private var keys: [String: String] = [:]
     @State private var baseURLs: [String: String] = [:]
+    @State private var savedBaseURLs: [String: String] = [:]
     @State private var customProviders: [CustomProviderDraft] = []
     @State private var testResults: [String: TestState] = [:]
+    @State private var expandedTests: Set<String> = []
 
     enum TestState: Equatable {
-        case testing, ok(Int), failed(String)
+        case testing, ok([String]), failed(String)
     }
 
     private var bundledIDs: Set<String> {
@@ -229,36 +231,19 @@ struct ProvidersPane: View {
         PaneHeader(title: "Built-in Providers")
         if let registry = appState.registry {
             ForEach(registry.presets.filter { bundledIDs.contains($0.id) && $0.id != "custom" }, id: \.id) { preset in
-                PaneCard {
-                    HStack {
-                        Text(preset.name)
-                            .font(Theme.smallMedium)
-                            .foregroundStyle(Theme.textBase)
-                        if !appState.storedAPIKey(for: preset.id).isEmpty {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.success)
-                        }
-                        Spacer()
-                        testButton(providerID: preset.id)
-                        testStatus(providerID: preset.id)
-                    }
-                    if let keyEnv = preset.keyEnv {
-                        PaneField(
-                            label: "API Key (env: \(keyEnv))",
-                            text: binding(for: preset.id),
-                            placeholder: "sk-…",
-                            secure: true,
-                            onSubmit: { save(preset.id) }
-                        )
-                    }
-                    PaneField(
-                        label: "Base URL",
-                        text: urlBinding(for: preset.id),
-                        placeholder: preset.baseURL,
-                        onSubmit: { saveBaseURL(preset.id) }
-                    )
-                }
+                BuiltinProviderCard(
+                    preset: preset,
+                    keyText: binding(for: preset.id),
+                    urlText: urlBinding(for: preset.id),
+                    urlDirty: (baseURLs[preset.id] ?? "") != (savedBaseURLs[preset.id] ?? ""),
+                    urlError: urlError(baseURLs[preset.id] ?? ""),
+                    testState: testResults[preset.id],
+                    expanded: expandedTests.contains(preset.id),
+                    onSaveKey: { save(preset.id) },
+                    onSaveURL: { saveBaseURL(preset.id) },
+                    onTest: { testProvider(preset.id) },
+                    onToggleExpand: { toggleExpand(preset.id) }
+                )
             }
         }
 
@@ -266,10 +251,13 @@ struct ProvidersPane: View {
         ForEach($customProviders) { $draft in
             CustomProviderCard(
                 draft: $draft,
+                existingIDs: Set(customProviders.map(\.id)).subtracting([draft.id]).union(bundledIDs),
                 testState: testResults[draft.id],
+                expanded: expandedTests.contains(draft.id),
                 onSave: { saveCustom(draft) },
                 onTest: { testProvider(draft.id) },
-                onDelete: { deleteCustom(draft.id) }
+                onDelete: { deleteCustom(draft.id) },
+                onToggleExpand: { toggleExpand(draft.id) }
             )
         }
         Button {
@@ -283,30 +271,24 @@ struct ProvidersPane: View {
         .onAppear { load() }
     }
 
-    @ViewBuilder
-    private func testButton(providerID: String) -> some View {
-        Button("Test") { testProvider(providerID) }
-            .buttonStyle(DockButtonStyle(variant: .ghost))
-            .controlSize(.small)
-            .disabled(testResults[providerID] == .testing)
+    private func toggleExpand(_ id: String) {
+        if expandedTests.contains(id) { expandedTests.remove(id) } else { expandedTests.insert(id) }
     }
 
-    @ViewBuilder
-    private func testStatus(providerID: String) -> some View {
-        switch testResults[providerID] {
-        case .testing:
-            ProgressView().controlSize(.mini)
-        case .ok(let count):
-            Text("OK — \(count) models").font(Theme.caption).foregroundStyle(Theme.success)
-        case .failed(let error):
-            Text(error).font(Theme.caption).foregroundStyle(Theme.danger).lineLimit(1)
-        case nil:
-            EmptyView()
+    /// http(s) URL check shared by built-in and custom cards. Empty = use default (valid).
+    private func urlError(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed), let scheme = url.scheme,
+              ["http", "https"].contains(scheme), url.host != nil else {
+            return "Must be a valid http(s) URL"
         }
+        return nil
     }
 
     private func testProvider(_ id: String) {
         testResults[id] = .testing
+        expandedTests.remove(id)
         Task {
             guard let registry = appState.registry, let resolved = appState.resolved else {
                 testResults[id] = .failed("not configured")
@@ -320,7 +302,7 @@ struct ProvidersPane: View {
                     baseURLOverride: resolved.config.providers[id]?.baseURL
                 )
                 let models = try await provider.models()
-                testResults[id] = .ok(models.count)
+                testResults[id] = .ok(models.map(\.id).sorted())
             } catch {
                 testResults[id] = .failed(error.localizedDescription)
             }
@@ -340,19 +322,14 @@ struct ProvidersPane: View {
         let bundled = Set((try? ProviderRegistry.load().presets.map(\.id)) ?? [])
         for preset in registry.presets where bundled.contains(preset.id) {
             keys[preset.id] = appState.storedAPIKey(for: preset.id)
-            baseURLs[preset.id] = appState.resolved?.config.providers[preset.id]?.baseURL ?? ""
+            let saved = appState.resolved?.config.providers[preset.id]?.baseURL ?? ""
+            baseURLs[preset.id] = saved
+            savedBaseURLs[preset.id] = saved
         }
         customProviders = (appState.resolved?.config.providers ?? [:])
             .filter { !bundled.contains($0.key) }
             .sorted { $0.key < $1.key }
-            .map { id, config in
-                CustomProviderDraft(
-                    id: id,
-                    name: config.name ?? id,
-                    baseURL: config.baseURL ?? "",
-                    modelIDs: (config.models ?? []).map(\.id).joined(separator: ", ")
-                )
-            }
+            .map { id, config in CustomProviderDraft(id: id, config: config) }
     }
 
     private func save(_ provider: String) {
@@ -360,6 +337,7 @@ struct ProvidersPane: View {
     }
 
     private func saveBaseURL(_ provider: String) {
+        guard urlError(baseURLs[provider] ?? "") == nil else { return }
         do {
             var config = GlobalConfigWriter().load()
             var providerConfig = config.providers[provider] ?? ProviderConfig()
@@ -368,6 +346,7 @@ struct ProvidersPane: View {
             config.providers[provider] = providerConfig
             try GlobalConfigWriter().save(config)
             appState.reloadConfig()
+            savedBaseURLs[provider] = value
         } catch {
             appState.lastError = error.localizedDescription
         }
@@ -376,22 +355,14 @@ struct ProvidersPane: View {
     private func addCustom() {
         var n = customProviders.count + 1
         while customProviders.contains(where: { $0.id == "custom-\(n)" }) { n += 1 }
-        customProviders.append(CustomProviderDraft(id: "custom-\(n)", name: "", baseURL: "", modelIDs: ""))
+        customProviders.append(CustomProviderDraft(id: "custom-\(n)", isNew: true))
     }
 
     private func saveCustom(_ draft: CustomProviderDraft) {
+        guard draft.validationError(existingIDs: bundledIDs.union(Set(customProviders.map(\.id)).subtracting([draft.id]))) == nil else { return }
         do {
             var config = GlobalConfigWriter().load()
-            let models = draft.modelIDs
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-                .map { ModelInfo(id: $0, name: $0, contextWindow: 128_000, maxOutput: 8_192) }
-            config.providers[draft.id] = ProviderConfig(
-                baseURL: draft.baseURL.trimmingCharacters(in: .whitespaces).nilIfEmpty,
-                name: draft.name.trimmingCharacters(in: .whitespaces).nilIfEmpty,
-                models: models.isEmpty ? nil : models
-            )
+            config.providers[draft.id] = draft.toConfig()
             try GlobalConfigWriter().save(config)
             appState.reloadConfig()
             load()
@@ -414,45 +385,195 @@ struct ProvidersPane: View {
     }
 }
 
+// MARK: - Provider drafts
+
+struct ModelDraft: Equatable {
+    /// Row identity for ForEach (model id can repeat while editing).
+    var rowID = UUID().uuidString
+    var id = ""           // model id sent to the API
+    var name = ""         // display name (falls back to id)
+    var contextWindow = "128000"
+    var maxOutput = "8192"
+    var supportsTools = true
+}
+
 struct CustomProviderDraft: Identifiable, Equatable {
-    var id: String
-    var name: String
-    var baseURL: String
-    var modelIDs: String
+    var id: String        // config key; editable while isNew
+    var isNew = false
+    var name = ""
+    var baseURL = ""
+    var models: [ModelDraft] = [ModelDraft()]
+    var dirty = false
+
+    init(id: String, isNew: Bool) {
+        self.id = id
+        self.isNew = isNew
+    }
+
+    init(id: String, config: ProviderConfig) {
+        self.id = id
+        name = config.name ?? id
+        baseURL = config.baseURL ?? ""
+        models = (config.models ?? []).map { info in
+            ModelDraft(
+                id: info.id,
+                name: info.name,
+                contextWindow: String(info.contextWindow),
+                maxOutput: String(info.maxOutput),
+                supportsTools: info.supportsTools
+            )
+        }
+        if models.isEmpty { models = [ModelDraft()] }
+    }
+
+    /// First validation problem, nil when saveable.
+    func validationError(existingIDs: Set<String>) -> String? {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        if trimmedName.isEmpty { return "Name is required" }
+        let trimmedID = id.trimmingCharacters(in: .whitespaces)
+        if trimmedID.isEmpty { return "ID is required" }
+        if trimmedID.range(of: #"^[a-z0-9][a-z0-9-]*$"#, options: .regularExpression) == nil {
+            return "ID must be lowercase slug (a-z, 0-9, -)"
+        }
+        if existingIDs.contains(trimmedID) { return "ID \"\(trimmedID)\" is already taken" }
+        let trimmedURL = baseURL.trimmingCharacters(in: .whitespaces)
+        guard let url = URL(string: trimmedURL), let scheme = url.scheme,
+              ["http", "https"].contains(scheme), url.host != nil else {
+            return "Base URL must be a valid http(s) URL"
+        }
+        if models.isEmpty { return "Add at least one model" }
+        var seen: Set<String> = []
+        for model in models {
+            let modelID = model.id.trimmingCharacters(in: .whitespaces)
+            if modelID.isEmpty { return "Every model needs an id" }
+            if !seen.insert(modelID).inserted { return "Duplicate model id \"\(modelID)\"" }
+            guard let context = Int(model.contextWindow), context > 0 else {
+                return "Context window of \"\(modelID)\" must be a positive number"
+            }
+            guard let output = Int(model.maxOutput), output > 0 else {
+                return "Max output of \"\(modelID)\" must be a positive number"
+            }
+        }
+        return nil
+    }
+
+    func toConfig() -> ProviderConfig {
+        ProviderConfig(
+            baseURL: baseURL.trimmingCharacters(in: .whitespaces).nilIfEmpty,
+            name: name.trimmingCharacters(in: .whitespaces).nilIfEmpty,
+            models: models.map { draft in
+                let modelID = draft.id.trimmingCharacters(in: .whitespaces)
+                let displayName = draft.name.trimmingCharacters(in: .whitespaces)
+                return ModelInfo(
+                    id: modelID,
+                    name: displayName.isEmpty ? modelID : displayName,
+                    contextWindow: Int(draft.contextWindow) ?? 128_000,
+                    maxOutput: Int(draft.maxOutput) ?? 8_192,
+                    supportsTools: draft.supportsTools
+                )
+            }
+        )
+    }
+}
+
+// MARK: - Provider cards
+
+private struct BuiltinProviderCard: View {
+    let preset: ProviderPreset
+    @Binding var keyText: String
+    @Binding var urlText: String
+    let urlDirty: Bool
+    let urlError: String?
+    let testState: ProvidersPane.TestState?
+    let expanded: Bool
+    let onSaveKey: () -> Void
+    let onSaveURL: () -> Void
+    let onTest: () -> Void
+    let onToggleExpand: () -> Void
+
+    var body: some View {
+        PaneCard {
+            HStack {
+                Text(preset.name)
+                    .font(Theme.smallMedium)
+                    .foregroundStyle(Theme.textBase)
+                if !keyText.isEmpty {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.success)
+                }
+                Spacer()
+                TestResultView(state: testState, expanded: expanded, onToggleExpand: onToggleExpand)
+                Button("Test", action: onTest)
+                    .buttonStyle(DockButtonStyle(variant: .ghost))
+                    .controlSize(.small)
+                    .disabled(testState == .testing)
+            }
+            if let keyEnv = preset.keyEnv {
+                PaneField(
+                    label: "API Key (env: \(keyEnv))",
+                    text: $keyText,
+                    placeholder: "sk-…",
+                    secure: true,
+                    onSubmit: onSaveKey
+                )
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                PaneField(
+                    label: "Base URL",
+                    text: $urlText,
+                    placeholder: preset.baseURL,
+                    onSubmit: onSaveURL
+                )
+                Button("Save", action: onSaveURL)
+                    .buttonStyle(DockButtonStyle(variant: .secondary))
+                    .controlSize(.small)
+                    .disabled(!urlDirty || urlError != nil)
+                    .padding(.bottom, 1)
+            }
+            if let urlError {
+                Text(urlError).font(Theme.caption).foregroundStyle(Theme.danger)
+            }
+            TestModelList(state: testState, expanded: expanded)
+        }
+    }
 }
 
 private struct CustomProviderCard: View {
     @Environment(AppState.self) private var appState
     @Binding var draft: CustomProviderDraft
+    let existingIDs: Set<String>
     let testState: ProvidersPane.TestState?
+    let expanded: Bool
     let onSave: () -> Void
     let onTest: () -> Void
     let onDelete: () -> Void
+    let onToggleExpand: () -> Void
+
+    private var error: String? {
+        draft.validationError(existingIDs: existingIDs.subtracting([draft.id]))
+    }
 
     var body: some View {
         PaneCard {
             HStack {
-                Text(draft.id)
+                Text(draft.isNew ? "New provider" : draft.id)
                     .font(Theme.caption)
                     .foregroundStyle(Theme.textFaint)
+                if draft.dirty {
+                    Text("unsaved").font(Theme.tiny).foregroundStyle(Theme.warning)
+                }
                 Spacer()
-                Button("Save", action: onSave)
-                    .buttonStyle(DockButtonStyle(variant: .secondary))
-                    .controlSize(.small)
+                TestResultView(state: testState, expanded: expanded, onToggleExpand: onToggleExpand)
                 Button("Test", action: onTest)
                     .buttonStyle(DockButtonStyle(variant: .ghost))
                     .controlSize(.small)
-                    .disabled(testState == .testing)
-                switch testState {
-                case .testing:
-                    ProgressView().controlSize(.mini)
-                case .ok(let count):
-                    Text("OK — \(count) models").font(Theme.caption).foregroundStyle(Theme.success)
-                case .failed(let error):
-                    Text(error).font(Theme.caption).foregroundStyle(Theme.danger).lineLimit(1)
-                case nil:
-                    EmptyView()
-                }
+                    .disabled(testState == .testing || draft.dirty)
+                    .help(draft.dirty ? "Save before testing" : "Fetch model list")
+                Button("Save", action: onSave)
+                    .buttonStyle(DockButtonStyle(variant: .secondary))
+                    .controlSize(.small)
+                    .disabled(!draft.dirty || error != nil)
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
@@ -460,8 +581,12 @@ private struct CustomProviderCard: View {
                 }
                 .buttonStyle(.plain)
             }
-            PaneField(label: "Name", text: $draft.name, placeholder: "My Provider", onSubmit: onSave)
-            PaneField(label: "Base URL", text: $draft.baseURL, placeholder: "https://host/v1", onSubmit: onSave)
+
+            if draft.isNew {
+                PaneField(label: "ID (locked after save)", text: binding(\.id), placeholder: "my-provider")
+            }
+            PaneField(label: "Name", text: binding(\.name), placeholder: "My Provider")
+            PaneField(label: "Base URL", text: binding(\.baseURL), placeholder: "https://host/v1")
             PaneField(
                 label: "API Key (optional)",
                 text: Binding(
@@ -471,7 +596,134 @@ private struct CustomProviderCard: View {
                 placeholder: "sk-…",
                 secure: true
             )
-            PaneField(label: "Model IDs, comma-separated", text: $draft.modelIDs, placeholder: "model-a, model-b", onSubmit: onSave)
+
+            HStack {
+                Text("MODELS")
+                    .font(Theme.tiny)
+                    .foregroundStyle(Theme.textFaint)
+                Spacer()
+                Button {
+                    draft.models.append(ModelDraft())
+                    draft.dirty = true
+                } label: {
+                    Label("Add Model", systemImage: "plus")
+                        .font(Theme.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.textAccent)
+            }
+            ForEach($draft.models, id: \.rowID) { $model in
+                ModelRow(model: $model, onDirty: { draft.dirty = true }, canDelete: draft.models.count > 1) {
+                    draft.models.removeAll { $0.rowID == model.rowID }
+                    draft.dirty = true
+                }
+            }
+
+            if let error {
+                Text(error).font(Theme.caption).foregroundStyle(Theme.danger)
+            }
+            TestModelList(state: testState, expanded: expanded)
+        }
+    }
+
+    private func binding<T: Equatable>(_ keyPath: WritableKeyPath<CustomProviderDraft, T>) -> Binding<T> {
+        Binding(
+            get: { draft[keyPath: keyPath] },
+            set: { draft[keyPath: keyPath] = $0; draft.dirty = true }
+        )
+    }
+}
+
+private struct ModelRow: View {
+    @Binding var model: ModelDraft
+    let onDirty: () -> Void
+    let canDelete: Bool
+    let onDelete: () -> Void
+
+    private func field(_ placeholder: String, _ keyPath: WritableKeyPath<ModelDraft, String>, width: CGFloat? = nil) -> some View {
+        TextField(placeholder, text: Binding(
+            get: { model[keyPath: keyPath] },
+            set: { model[keyPath: keyPath] = $0; onDirty() }
+        ))
+        .textFieldStyle(.plain)
+        .font(Theme.caption)
+        .foregroundStyle(Theme.textBase)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .frame(width: width)
+        .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusSmall))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).stroke(Theme.borderMuted, lineWidth: 0.5))
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            field("model-id", \.id)
+            field("Display name", \.name)
+            field("Ctx", \.contextWindow, width: 64)
+            field("Out", \.maxOutput, width: 56)
+            Toggle("", isOn: Binding(
+                get: { model.supportsTools },
+                set: { model.supportsTools = $0; onDirty() }
+            ))
+            .toggleStyle(.checkbox)
+            .labelsHidden()
+            .help("Supports tools")
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "minus.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(canDelete ? Theme.danger : Theme.textFaint)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canDelete)
+        }
+    }
+}
+
+private struct TestResultView: View {
+    let state: ProvidersPane.TestState?
+    let expanded: Bool
+    let onToggleExpand: () -> Void
+
+    var body: some View {
+        switch state {
+        case .testing:
+            ProgressView().controlSize(.mini)
+        case .ok(let models):
+            Button(action: onToggleExpand) {
+                HStack(spacing: 3) {
+                    Text("OK — \(models.count) models")
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8))
+                }
+                .font(Theme.caption)
+                .foregroundStyle(Theme.success)
+            }
+            .buttonStyle(.plain)
+        case .failed(let error):
+            Text(error).font(Theme.caption).foregroundStyle(Theme.danger).lineLimit(1)
+        case nil:
+            EmptyView()
+        }
+    }
+}
+
+private struct TestModelList: View {
+    let state: ProvidersPane.TestState?
+    let expanded: Bool
+
+    var body: some View {
+        if expanded, case .ok(let models) = state {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(models.prefix(20), id: \.self) { model in
+                    Text(model).font(Theme.caption).foregroundStyle(Theme.textMuted)
+                }
+                if models.count > 20 {
+                    Text("… \(models.count - 20) more").font(Theme.caption).foregroundStyle(Theme.textFaint)
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusSmall))
         }
     }
 }
@@ -516,21 +768,29 @@ struct MCPPane: View {
                 .foregroundStyle(Theme.textFaint)
         } else {
             ForEach(servers.keys.sorted(), id: \.self) { name in
+                let enabled = servers[name]?.enabled ?? true
                 PaneCard {
                     HStack {
-                        statusIcon(for: name)
+                        statusIcon(for: name, enabled: enabled)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(name)
                                 .font(Theme.smallMedium)
-                                .foregroundStyle(Theme.textBase)
+                                .foregroundStyle(enabled ? Theme.textBase : Theme.textFaint)
                             Text(commandLine(for: name))
                                 .font(Theme.caption)
                                 .foregroundStyle(Theme.textFaint)
                         }
                         Spacer()
-                        Text(statusText(for: name))
+                        Text(enabled ? statusText(for: name) : "disabled")
                             .font(Theme.caption)
                             .foregroundStyle(Theme.textMuted)
+                        Toggle("", isOn: Binding(
+                            get: { enabled },
+                            set: { appState.setMCPServerEnabled(name, $0) }
+                        ))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
                     }
                 }
             }
@@ -552,16 +812,20 @@ struct MCPPane: View {
     }
 
     @ViewBuilder
-    private func statusIcon(for name: String) -> some View {
-        switch appState.mcpStatuses[name] {
-        case .running:
-            Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Theme.success)
-        case .starting:
-            ProgressView().controlSize(.mini)
-        case .failed:
-            Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Theme.danger)
-        case nil:
+    private func statusIcon(for name: String, enabled: Bool) -> some View {
+        if !enabled {
             Image(systemName: "circle").font(.system(size: 8)).foregroundStyle(Theme.textFaint)
+        } else {
+            switch appState.mcpStatuses[name] {
+            case .running:
+                Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Theme.success)
+            case .starting:
+                ProgressView().controlSize(.mini)
+            case .failed:
+                Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Theme.danger)
+            case nil:
+                Image(systemName: "circle").font(.system(size: 8)).foregroundStyle(Theme.textFaint)
+            }
         }
     }
 }

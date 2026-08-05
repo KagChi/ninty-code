@@ -601,7 +601,7 @@ final class AppState {
     // MARK: - MCP
 
     private func startMCP() {        guard let workspace else { return }
-        let configs = resolved?.config.mcp ?? [:]
+        let configs = (resolved?.config.mcp ?? [:]).filter(\.value.enabled)
         guard !configs.isEmpty else {
             mcpManager = nil
             mcpStatuses = [:]
@@ -721,6 +721,28 @@ final class AppState {
     func resyncGraph() async {
         guard let workspace else { return }
         _ = await ensureGraphSync().syncFull(workspace: workspace.id, roots: workspace.folders, force: true)
+    }
+
+    /// Enable/disable an MCP server: persists the flag to the global config,
+    /// then restarts the active workspace's manager (disabled servers drop
+    /// their connections; enabled ones reconnect).
+    func setMCPServerEnabled(_ name: String, _ enabled: Bool) {
+        do {
+            var config = GlobalConfigWriter().load()
+            guard var server = config.mcp[name] else { return }
+            server.enabled = enabled
+            config.mcp[name] = server
+            try GlobalConfigWriter().save(config)
+            reloadConfig()
+            guard let workspace else { return }
+            if let manager = mcpManagers.removeValue(forKey: workspace.id) {
+                Task { await manager.stopAll() }
+            }
+            mcpStatuses = [:]
+            startMCP()
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     // MARK: - Settings
