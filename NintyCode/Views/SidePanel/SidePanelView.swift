@@ -10,26 +10,43 @@ struct SidePanelView: View {
     enum PanelTab { case files, context }
 
     @State private var tab: PanelTab = .files
-    @State private var changes: [FileChange] = []
-    @State private var selectedPath: String?
+    /// Per-root git state — multi-root workspaces show one section per repo folder.
+    @State private var sections: [FolderSection] = []
+    @State private var selection: (root: URL, path: String)?
     @State private var diffText = ""
     @State private var filter = ""
     @State private var loading = true
-    @State private var isRepo = true
+    @State private var anyRepo = true
     @State private var refreshTask: Task<Void, Never>?
 
-    private var review: GitReview? {
-        appState.projectRoot.map(GitReview.init(projectRoot:))
+    /// One workspace root's git state (skipped from UI when not a repo).
+    struct FolderSection {
+        let root: URL
+        let review: GitReview
+        var changes: [FileChange]
     }
 
-    private var filtered: [FileChange] {
-        guard !filter.isEmpty else { return changes }
+    /// List row: change disambiguated by its root (paths can repeat across repos).
+    struct Row: Identifiable {
+        let root: URL
+        let review: GitReview
+        let change: FileChange
+        var id: String { root.path + "|" + change.path }
+    }
+
+    private var allRows: [Row] {
+        sections.flatMap { section in
+            section.changes.map { Row(root: section.root, review: section.review, change: $0) }
+        }
+    }
+
+    private var filtered: [Row] {
+        guard !filter.isEmpty else { return allRows }
         let needle = filter.lowercased()
-        return changes.filter { $0.path.lowercased().contains(needle) }
+        return allRows.filter { $0.change.path.lowercased().contains(needle) }
     }
 
-    private var totalAdds: Int { changes.reduce(0) { $0 + $1.additions } }
-    private var totalDels: Int { changes.reduce(0) { $0 + $1.deletions } }
+    private var changeCount: Int { sections.reduce(0) { $0 + $1.changes.count } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,7 +78,7 @@ struct SidePanelView: View {
 
     private var tabBar: some View {
         HStack(spacing: 6) {
-            tabPill(title: changes.isEmpty ? "Files Changed" : "Files Changed \(changes.count)",
+            tabPill(title: changeCount == 0 ? "Files Changed" : "Files Changed \(changeCount)",
                     icon: "doc.on.doc", active: tab == .files) { tab = .files }
             tabPill(title: "Context", icon: "circle.lefthalf.filled", active: tab == .context) { tab = .context }
             Spacer()
@@ -117,13 +134,13 @@ struct SidePanelView: View {
 
     @ViewBuilder
     private var filesContent: some View {
-        if !isRepo {
+        if !anyRepo {
             emptyState(icon: "folder.badge.questionmark", text: "Not a git repository")
-        } else if loading && changes.isEmpty {
+        } else if loading && sections.isEmpty {
             Spacer()
             ProgressView().controlSize(.small)
             Spacer()
-        } else if changes.isEmpty {
+        } else if changeCount == 0 {
             emptyState(icon: "checkmark.circle", text: "No changes")
         } else {
             HSplitView {
@@ -155,8 +172,23 @@ struct SidePanelView: View {
 
             ScrollView {
                 LazyVStack(spacing: 1) {
-                    ForEach(filtered) { change in
-                        fileRow(change)
+                    // Multi-root: group rows under a folder header per repo.
+                    ForEach(sections, id: \.root) { section in
+                        let rows = filtered.filter { $0.root == section.root }
+                        if !rows.isEmpty {
+                            if sections.count > 1 {
+                                Text(section.root.lastPathComponent)
+                                    .font(Theme.tiny.weight(.semibold))
+                                    .foregroundStyle(Theme.textFaint)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 6)
+                                    .padding(.top, 6)
+                                    .padding(.bottom, 2)
+                            }
+                            ForEach(rows) { row in
+                                fileRow(row)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 6)
@@ -166,8 +198,9 @@ struct SidePanelView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func fileRow(_ change: FileChange) -> some View {
-        let selected = change.path == selectedPath
+    private func fileRow(_ row: Row) -> some View {
+        let change = row.change
+        let selected = selection?.root == row.root && selection?.path == change.path
         return HStack(spacing: 6) {
             Text(change.status.rawValue)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -188,7 +221,7 @@ struct SidePanelView: View {
         .padding(.vertical, 4)
         .background(selected ? Theme.overlayPressed : .clear, in: .rect(cornerRadius: 4))
         .contentShape(Rectangle())
-        .onTapGesture { select(change) }
+        .onTapGesture { select(row) }
     }
 
     private func statusColor(_ status: FileChange.Status) -> Color {
@@ -203,7 +236,7 @@ struct SidePanelView: View {
 
     @ViewBuilder
     private var diffPreview: some View {
-        if selectedPath == nil {
+        if selection == nil {
             emptyState(icon: "doc.text.magnifyingglass", text: "Select a file")
         } else if diffText.isEmpty {
             emptyState(icon: "doc.plaintext", text: "No diff available")
@@ -226,35 +259,38 @@ struct SidePanelView: View {
 
     // MARK: - Data
 
-    private func select(_ change: FileChange) {
-        selectedPath = change.path
+    private func select(_ row: Row) {
+        selection = (row.root, row.change.path)
         diffText = ""
-        guard let review else { return }
         Task {
-            let text = await review.diff(for: change)
-            if selectedPath == change.path { diffText = text }
+            let text = await row.review.diff(for: row.change)
+            if selection?.root == row.root, selection?.path == row.change.path { diffText = text }
         }
     }
 
     private func reload() async {
-        guard let review else { isRepo = false; loading = false; return }
-        loading = true
-        let repo = await review.isGitRepo()
-        guard repo else {
-            isRepo = false
+        guard let workspace = appState.workspace else {
+            anyRepo = false
             loading = false
             return
         }
-        isRepo = true
-        let list = await review.changes()
-        changes = list
+        loading = true
+        var loaded: [FolderSection] = []
+        for root in workspace.folders {
+            let review = GitReview(projectRoot: root)
+            guard await review.isGitRepo() else { continue } // non-repo folders skipped
+            loaded.append(FolderSection(root: root, review: review, changes: await review.changes()))
+        }
+        anyRepo = !loaded.isEmpty
+        sections = loaded
         loading = false
-        if let selected = selectedPath, let current = list.first(where: { $0.path == selected }) {
-            select(current)
-        } else if let first = list.first {
+        if let current = selection,
+           let row = allRows.first(where: { $0.root == current.root && $0.change.path == current.path }) {
+            select(row)
+        } else if let first = allRows.first {
             select(first)
         } else {
-            selectedPath = nil
+            selection = nil
             diffText = ""
         }
     }

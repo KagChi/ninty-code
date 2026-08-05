@@ -6,9 +6,11 @@ import NintyCore
 @Observable
 @MainActor
 final class AppState {
-    // Project
-    var projectRoot: URL?
-    var recentProjects: [URL] = []
+    // Workspace (multi-root project — VS Code style). folders[0] = primary.
+    var workspace: Workspace?
+    var workspaces: [Workspace] = []
+    /// Primary root of the active workspace (compat convenience for single-root UI).
+    var projectRoot: URL? { workspace?.primaryRoot }
 
     // Config
     var resolved: ResolvedConfig?
@@ -19,12 +21,13 @@ final class AppState {
     var activeChat: ChatStore?
     /// v2 tabs: open chats kept alive in memory (background streams continue).
     var openTabs: [ChatStore] = []
-    /// Sidebar session cache, keyed by project root (all recents preloaded).
-    var sessionsByProject: [URL: [SessionMeta]] = [:]
-    /// Sidebar projects showing their session list.
-    var expandedProjects: Set<URL> = []
+    /// Sidebar session cache, keyed by workspace id (all workspaces preloaded).
+    var sessionsByWorkspace: [String: [SessionMeta]] = [:]
+    /// Sidebar workspaces showing their session list.
+    var expandedWorkspaces: Set<String> = []
 
-    // Cached project file paths (for @ mentions) — loaded once per project.
+    // Cached workspace file paths (for @ mentions) — loaded once per workspace.
+    // Multi-root: paths carry the root folder-name prefix ("api/app/main.py").
     var projectFiles: [String] = []
 
     // Agents + models
@@ -56,15 +59,19 @@ final class AppState {
     /// In-app settings dialog (opencode dialog-settings — no native Settings window).
     var showSettings = false
     var settingsSection: SettingsSection = .general
+    /// Workspace create/edit dialog. editingWorkspace nil = creating new.
+    var showWorkspaceDialog = false
+    var editingWorkspace: Workspace?
 
     /// Recent model references, newest first, max 5 (opencode recent-ring).
     var recentModels: [String] = []
 
     private let configLoader = ConfigLoader()
+    private let workspaceStore = WorkspaceStore()
     private var baseRegistry: ProviderRegistry?
     private var mcpManager: MCPManager?
-    /// Keep-alive MCP managers keyed by project root (mixed-project tabs).
-    private var mcpManagers: [URL: MCPManager] = [:]
+    /// Keep-alive MCP managers keyed by workspace id (mixed-workspace tabs).
+    private var mcpManagers: [String: MCPManager] = [:]
 
     var selectedAgent: Agent {
         agents.first { $0.id == selectedAgentID } ?? .build
@@ -74,17 +81,23 @@ final class AppState {
         baseRegistry = try? ProviderRegistry.load()
         registry = baseRegistry
         recentModels = UserDefaults.standard.stringArray(forKey: "recentModels") ?? []
-        recentProjects = (UserDefaults.standard.stringArray(forKey: "recentProjects") ?? [])
-            .map { URL(fileURLWithPath: $0) }
-        if let last = UserDefaults.standard.url(forKey: "lastProject") {
-            openProject(last)
+        Task { [weak self] in
+            guard let self else { return }
+            await migrateLegacyRecentsIfNeeded()
+            let loaded = await workspaceStore.load()
+            workspaces = loaded
+            if let lastID = UserDefaults.standard.string(forKey: "lastWorkspaceID"),
+               let last = loaded.first(where: { $0.id == lastID }) {
+                openWorkspace(last)
+            }
+            preloadAllWorkspaceSessions()
         }
-        preloadAllProjectSessions()
     }
 
-    // MARK: - Project
+    // MARK: - Workspace
 
-    /// NSOpenPanel folder picker (async, non-blocking).
+    /// NSOpenPanel folder picker (async, non-blocking). Picked folder becomes
+    /// a single-folder workspace — or focuses the workspace already holding it.
     func pickProject() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -94,23 +107,106 @@ final class AppState {
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            Task { @MainActor in self?.openProject(url) }
+            Task { @MainActor in self?.addOrOpenWorkspace(folder: url) }
         }
     }
 
-    func openProject(_ url: URL) {
-        projectRoot = url
-        UserDefaults.standard.set(url, forKey: "lastProject")
-        // Track recents (max 8, most-recent first).
-        recentProjects.removeAll { $0 == url }
-        recentProjects.insert(url, at: 0)
-        if recentProjects.count > 8 { recentProjects.removeLast(recentProjects.count - 8) }
-        UserDefaults.standard.set(recentProjects.map(\.path), forKey: "recentProjects")
+    /// NSOpenPanel picker for "Add Folder to Workspace".
+    func pickFolderToAdd(to target: Workspace) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add Folder"
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in self?.addFolder(url, to: target) }
+        }
+    }
+
+    func addOrOpenWorkspace(folder: URL) {
+        if let existing = workspaces.first(where: { $0.folders.contains(folder) }) {
+            openWorkspace(existing)
+        } else {
+            openWorkspace(Workspace(name: folder.lastPathComponent, folders: [folder]))
+        }
+    }
+
+    // MARK: - Workspace dialog (create/edit: name, folders, system context)
+
+    func showNewWorkspaceDialog() {
+        editingWorkspace = nil
+        showWorkspaceDialog = true
+    }
+
+    func showEditWorkspaceDialog(_ target: Workspace) {
+        editingWorkspace = target
+        showWorkspaceDialog = true
+    }
+
+    /// Dialog save: upsert. New workspaces open immediately; edits to the
+    /// active workspace reload config/instructions + mention files.
+    /// Live chats keep their original root set + system context.
+    func saveWorkspace(_ saved: Workspace, isNew: Bool) {
+        if let index = workspaces.firstIndex(where: { $0.id == saved.id }) {
+            workspaces[index] = saved
+        } else {
+            workspaces.insert(saved, at: 0)
+        }
+        persistWorkspaces()
+        if isNew {
+            openWorkspace(saved)
+        } else if workspace?.id == saved.id {
+            workspace = saved
+            reloadAfterFolderChange()
+        }
+        preloadAllWorkspaceSessions()
+    }
+
+    /// Append a folder to a workspace (primary stays first). Active workspace
+    /// reloads files + instructions; live chats keep their original roots.
+    func addFolder(_ url: URL, to target: Workspace) {
+        guard let index = workspaces.firstIndex(where: { $0.id == target.id }),
+              !workspaces[index].folders.contains(url) else { return }
+        workspaces[index].folders.append(url)
+        persistWorkspaces()
+        if workspace?.id == target.id {
+            workspace = workspaces[index]
+            reloadAfterFolderChange()
+        }
+        preloadAllWorkspaceSessions()
+    }
+
+    /// Remove a folder from a workspace. Removing the last remaining folder
+    /// deletes the workspace (with its sessions) — same as removeWorkspace.
+    func removeFolder(_ url: URL, from target: Workspace) {
+        guard let index = workspaces.firstIndex(where: { $0.id == target.id }) else { return }
+        guard workspaces[index].folders.count > 1 else {
+            removeWorkspace(target)
+            return
+        }
+        workspaces[index].folders.removeAll { $0 == url }
+        persistWorkspaces()
+        if workspace?.id == target.id {
+            workspace = workspaces[index]
+            reloadAfterFolderChange()
+        }
+    }
+
+    func openWorkspace(_ next: Workspace) {
+        workspace = next
+        UserDefaults.standard.set(next.id, forKey: "lastWorkspaceID")
+        // MRU ordering (max 8, most-recent first).
+        workspaces.removeAll { $0.id == next.id }
+        workspaces.insert(next, at: 0)
+        if workspaces.count > 8 { workspaces.removeLast(workspaces.count - 8) }
+        persistWorkspaces()
         do {
-            resolved = try configLoader.load(projectRoot: url)
+            resolved = try configLoader.load(roots: next.folders)
         } catch {
             lastError = error.localizedDescription
-            resolved = ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: url)
+            resolved = ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: next.primaryRoot)
         }
         agents = Agent.all(custom: resolved?.config.agents ?? [:])
         registry = baseRegistry?.merging(config: resolved?.config ?? NintyConfig())
@@ -120,40 +216,84 @@ final class AppState {
         startMCP()
         reloadSessions()
         loadProjectFiles()
-        // Tabs survive project switches (mixed-project tab strip) — each
-        // ChatStore carries its own project/provider/MCP references.
-        expandedProjects.insert(url)
-        preloadAllProjectSessions()
+        // Tabs survive workspace switches (mixed tab strip) — each ChatStore
+        // carries its own roots/provider/MCP references.
+        expandedWorkspaces.insert(next.id)
+        preloadAllWorkspaceSessions()
     }
 
     /// Re-read config + rebuild merged registry (after settings edits). Keeps active chat.
     func reloadConfig() {
-        guard let projectRoot else { return }
-        resolved = (try? configLoader.load(projectRoot: projectRoot))
-            ?? ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: projectRoot)
+        guard let workspace else { return }
+        resolved = (try? configLoader.load(roots: workspace.folders))
+            ?? ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: workspace.primaryRoot)
         agents = Agent.all(custom: resolved?.config.agents ?? [:])
         registry = baseRegistry?.merging(config: resolved?.config ?? NintyConfig())
-        // Config may change MCP servers — rebuild this project's manager.
-        if let old = mcpManagers.removeValue(forKey: projectRoot) {
+        // Config may change MCP servers — rebuild this workspace's manager.
+        if let old = mcpManagers.removeValue(forKey: workspace.id) {
             Task { await old.stopAll() }
         }
         startMCP()
     }
 
-    /// Cache project files for @ mention filtering. Detached + bounded walk — must never
-    /// run on MainActor (sync enumeration of a large tree freezes the UI).
-    /// Directories included (trailing "/") — opencode lets you mention folders.
+    /// Folder set changed on the active workspace: config/instructions (merged
+    /// from all roots) + @-mention cache refresh + live chats adopt the roots.
+    private func reloadAfterFolderChange() {
+        guard let workspace else { return }
+        resolved = (try? configLoader.load(roots: workspace.folders))
+            ?? ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: workspace.primaryRoot)
+        loadProjectFiles()
+        for chat in openTabs where chat.workspaceID == workspace.id {
+            chat.updateRoots(workspace.folders)
+        }
+    }
+
+    private func persistWorkspaces() {
+        let snapshot = workspaces
+        Task { try? await workspaceStore.save(snapshot) }
+    }
+
+    /// First launch after the workspace upgrade: wrap legacy recents into
+    /// single-folder workspaces. Legacy ids keep the SessionStore path-hash,
+    /// so existing sessions remain readable. Old UserDefaults keys removed.
+    private func migrateLegacyRecentsIfNeeded() async {
+        let existing = await workspaceStore.load()
+        guard existing.isEmpty else { return }
+        let recents = (UserDefaults.standard.stringArray(forKey: "recentProjects") ?? [])
+            .map { URL(fileURLWithPath: $0) }
+        guard !recents.isEmpty else { return }
+        var migrated = recents.map(Workspace.legacy(folder:))
+        if let last = UserDefaults.standard.url(forKey: "lastProject"),
+           let index = migrated.firstIndex(where: { $0.primaryRoot == last }) {
+            let ws = migrated.remove(at: index)
+            migrated.insert(ws, at: 0)
+            UserDefaults.standard.set(ws.id, forKey: "lastWorkspaceID")
+        }
+        try? await workspaceStore.save(migrated)
+        UserDefaults.standard.removeObject(forKey: "recentProjects")
+        UserDefaults.standard.removeObject(forKey: "lastProject")
+    }
+
+    /// Cache workspace files for @ mention filtering. Detached + bounded walk — must
+    /// never run on MainActor. Multi-root: paths prefixed with the root folder name
+    /// (ToolContext.mentionPath format); directories keep trailing "/".
     private func loadProjectFiles() {
-        guard let projectRoot else { return }
+        guard let workspace else { return }
         projectFiles = []
+        let roots = workspace.folders
         Task.detached(priority: .utility) { [weak self] in
-            let urls = GlobTool.collectFiles(base: projectRoot, keys: [.isDirectoryKey], limit: 2_000, includeDirectories: true) ?? []
-            let basePath = projectRoot.resolvingSymlinksInPath().path
-            let files = urls.map { url -> String in
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                let path = url.resolvingSymlinksInPath().path
-                let relative = path.hasPrefix(basePath + "/") ? String(path.dropFirst(basePath.count + 1)) : path
-                return isDir ? relative + "/" : relative
+            let context = ToolContext(projectRoots: roots, sessionID: "mentions")
+            var files: [String] = []
+            for root in roots {
+                guard files.count < 2_000 else { break }
+                let urls = GlobTool.collectFiles(base: root, keys: [.isDirectoryKey], limit: 2_000, includeDirectories: true) ?? []
+                for url in urls {
+                    let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                    var path = context.mentionPath(for: url)
+                    if isDir { path += "/" }
+                    files.append(path)
+                    if files.count >= 2_000 { break }
+                }
             }
             let state = self
             await MainActor.run { state?.projectFiles = files }
@@ -178,35 +318,35 @@ final class AppState {
     // MARK: - Sessions
 
     func reloadSessions() {
-        if let projectRoot { reloadSessions(for: projectRoot) }
+        if let workspace { reloadSessions(for: workspace) }
     }
 
-    /// Refresh one project's session cache; also updates `sessions` when it
-    /// is the active project.
-    func reloadSessions(for project: URL) {
-        let store = SessionStore(projectRoot: project)
+    /// Refresh one workspace's session cache; also updates `sessions` when it
+    /// is the active workspace.
+    func reloadSessions(for target: Workspace) {
+        let store = SessionStore(workspace: target)
         Task { [weak self] in
             let metas = (try? await store.list()) ?? []
             guard let self else { return }
-            self.sessionsByProject[project] = metas
-            if project == self.projectRoot { self.sessions = metas }
+            self.sessionsByWorkspace[target.id] = metas
+            if target.id == self.workspace?.id { self.sessions = metas }
         }
     }
 
-    /// Sidebar: load sessions for every known project into `sessionsByProject`.
+    /// Sidebar: load sessions for every known workspace into `sessionsByWorkspace`.
     /// Detached — SessionStore IO must not block the main actor.
-    func preloadAllProjectSessions() {
-        var projects = recentProjects
-        if let projectRoot, !projects.contains(projectRoot) { projects.insert(projectRoot, at: 0) }
+    func preloadAllWorkspaceSessions() {
+        var targets = workspaces
+        if let workspace, !targets.contains(workspace) { targets.insert(workspace, at: 0) }
         Task.detached(priority: .utility) { [weak self] in
-            var cache: [URL: [SessionMeta]] = [:]
-            for project in projects {
-                cache[project] = (try? await SessionStore(projectRoot: project).list()) ?? []
+            var cache: [String: [SessionMeta]] = [:]
+            for target in targets {
+                cache[target.id] = (try? await SessionStore(workspace: target).list()) ?? []
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                self.sessionsByProject = cache
-                if let projectRoot, let metas = cache[projectRoot] {
+                self.sessionsByWorkspace = cache
+                if let workspace, let metas = cache[workspace.id] {
                     self.sessions = metas
                 }
             }
@@ -214,44 +354,50 @@ final class AppState {
     }
 
     func deleteSession(_ id: String) {
-        guard let projectRoot else { return }
-        let store = SessionStore(projectRoot: projectRoot)
+        guard let workspace else { return }
+        let store = SessionStore(workspace: workspace)
         Task { [weak self] in
             try? await store.delete(id: id)
             self?.reloadSessions()
         }
     }
 
-    /// Delete a project entirely (sidebar context menu, confirmed): close
-    /// its tabs, stop its MCP manager, forget recents/last-project, wipe
-    /// its sessions from disk. Active project → fall back to the next
-    /// recent, or the no-project state when none remain.
-    func removeProject(_ url: URL) {
-        for chat in openTabs.filter({ $0.projectRoot == url }) {
+    /// Delete a workspace entirely (sidebar context menu, confirmed): close
+    /// its tabs, stop its MCP manager, forget it, wipe its sessions from disk.
+    /// Active workspace → fall back to the next one, or the empty state.
+    func removeWorkspace(_ target: Workspace) {
+        for chat in openTabs.filter({ $0.workspaceID == target.id }) {
             closeTab(chat)
         }
-        if let manager = mcpManagers.removeValue(forKey: url) {
+        if let manager = mcpManagers.removeValue(forKey: target.id) {
             Task { await manager.stopAll() }
         }
-        recentProjects.removeAll { $0 == url }
-        UserDefaults.standard.set(recentProjects.map(\.path), forKey: "recentProjects")
-        sessionsByProject[url] = nil
-        expandedProjects.remove(url)
-        if projectRoot == url {
-            if let next = recentProjects.first {
-                openProject(next)
+        workspaces.removeAll { $0.id == target.id }
+        persistWorkspaces()
+        sessionsByWorkspace[target.id] = nil
+        expandedWorkspaces.remove(target.id)
+        if workspace?.id == target.id {
+            if let next = workspaces.first {
+                openWorkspace(next)
             } else {
-                projectRoot = nil
-                UserDefaults.standard.removeObject(forKey: "lastProject")
+                workspace = nil
+                UserDefaults.standard.removeObject(forKey: "lastWorkspaceID")
                 sessions = []
             }
         }
-        Task { try? await SessionStore(projectRoot: url).deleteAll() }
+        Task { try? await SessionStore(workspace: target).deleteAll() }
     }
 
     func newChat() {
         let chat = makeChat(sessionID: UUID().uuidString)
         pushTab(chat)
+    }
+
+    /// Sidebar context menu: new session inside a specific workspace
+    /// (switches to it first when foreign).
+    func newChat(in target: Workspace) {
+        if workspace?.id != target.id { openWorkspace(target) }
+        newChat()
     }
 
     /// Open an existing session: restore its saved agent/model selection (opencode per-session persistence).
@@ -272,22 +418,22 @@ final class AppState {
         pushTab(makeChat(sessionID: id))
     }
 
-    /// Sidebar: open a session from any project. An existing tab for the
+    /// Sidebar: open a session from any workspace. An existing tab for the
     /// session wins (activate, never duplicate — tabs are mixed). Otherwise:
-    /// same project → openChat; foreign → switch project first. Agent/model
+    /// same workspace → openChat; foreign → switch workspace first. Agent/model
     /// restored from the sidebar cache (`reloadSessions` is async, so
-    /// `sessions` would miss on a fresh project switch).
-    func openSession(_ id: String, in project: URL) {
+    /// `sessions` would miss on a fresh workspace switch).
+    func openSession(_ id: String, in target: Workspace) {
         if let existing = openTabs.first(where: { $0.sessionID == id }) {
             activateTab(existing)
             return
         }
-        guard project != projectRoot else {
+        guard target.id != workspace?.id else {
             openChat(id)
             return
         }
-        let meta = sessionsByProject[project]?.first { $0.id == id }
-        openProject(project)
+        let meta = sessionsByWorkspace[target.id]?.first { $0.id == id }
+        openWorkspace(target)
         if let meta {
             if let agent = agents.first(where: { $0.id == meta.agentID }) {
                 selectedAgentID = agent.id
@@ -310,9 +456,10 @@ final class AppState {
     }
 
     func activateTab(_ chat: ChatStore) {
-        // Foreign tab: switch project context on the fly, tab stays alive.
-        if chat.projectRoot != projectRoot {
-            openProject(chat.projectRoot)
+        // Foreign tab: switch workspace context on the fly, tab stays alive.
+        if chat.workspaceID != workspace?.id,
+           let target = workspaces.first(where: { $0.id == chat.workspaceID }) {
+            openWorkspace(target)
         }
         activeChat = chat
         syncActiveFlags()
@@ -397,7 +544,7 @@ final class AppState {
     }
 
     private func makeChat(sessionID: String) -> ChatStore? {
-        guard let projectRoot, let registry, let resolved else { return nil }
+        guard let workspace, let registry, let resolved else { return nil }
         guard let (providerID, modelID) = ProviderRegistry.split(selectedModel) else {
             lastError = "Invalid model reference: \(selectedModel)"
             return nil
@@ -412,6 +559,13 @@ final class AppState {
             let info = catalog.first { $0.id == modelID }
             let contextWindow = info?.contextWindow ?? 128_000
             let maxOutput = info?.maxOutput ?? 8_192
+            // AGENTS.md (all roots, via ConfigLoader) + per-workspace system context.
+            let instructions = [resolved.projectInstructions, workspace.systemContext]
+                .compactMap { value -> String? in
+                    guard let value, !value.isEmpty else { return nil }
+                    return value
+                }
+                .joined(separator: "\n\n")
             return ChatStore(
                 sessionID: sessionID,
                 agent: selectedAgent,
@@ -420,10 +574,12 @@ final class AppState {
                 modelReference: selectedModel,
                 contextWindow: contextWindow,
                 maxOutput: maxOutput,
-                projectRoot: projectRoot,
-                projectInstructions: resolved.projectInstructions,
+                workspaceID: workspace.id,
+                workspaceName: workspace.name,
+                projectRoots: workspace.folders,
+                projectInstructions: instructions.isEmpty ? nil : instructions,
                 mcpManager: mcpManager,
-                onChange: { [weak self] in self?.reloadSessions(for: projectRoot) }
+                onChange: { [weak self] in self?.reloadSessions(for: workspace) }
             )
         } catch {
             lastError = error.localizedDescription
@@ -434,23 +590,23 @@ final class AppState {
     // MARK: - MCP
 
     private func startMCP() {
-        guard let projectRoot else { return }
+        guard let workspace else { return }
         let configs = resolved?.config.mcp ?? [:]
         guard !configs.isEmpty else {
             mcpManager = nil
             mcpStatuses = [:]
             return
         }
-        // Keep-alive: managers are cached per project so foreign tabs never
-        // lose their MCP servers on a project switch. Processes die with app.
+        // Keep-alive: managers are cached per workspace so foreign tabs never
+        // lose their MCP servers on a workspace switch. Processes die with app.
         let manager: MCPManager
         let isNew: Bool
-        if let cached = mcpManagers[projectRoot] {
+        if let cached = mcpManagers[workspace.id] {
             manager = cached
             isNew = false
         } else {
             manager = MCPManager(configs: configs)
-            mcpManagers[projectRoot] = manager
+            mcpManagers[workspace.id] = manager
             isNew = true
         }
         mcpManager = manager

@@ -73,9 +73,16 @@ struct MessageView: View {
                     .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusLarge))
                     .frame(maxWidth: 520, alignment: .trailing)
             }
+            // Queued steer message: visible immediately, dimmed with a caption.
+            if message.isQueued {
+                Text("queued")
+                    .font(Theme.tiny.italic())
+                    .foregroundStyle(Theme.textFaint)
+            }
             metaRow(alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .opacity(message.isQueued ? 0.7 : 1)
         .onHover { hovered = $0 }
     }
 

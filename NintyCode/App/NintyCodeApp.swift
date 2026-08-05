@@ -154,6 +154,12 @@ struct ContentView: View {
         )) {
             SettingsDialog().environment(appState)
         }
+        .modalOverlay(isPresented: Binding(
+            get: { appState.showWorkspaceDialog },
+            set: { appState.showWorkspaceDialog = $0 }
+        )) {
+            WorkspaceDialog(editing: appState.editingWorkspace).environment(appState)
+        }
         // Click-to-preview for attached images (timeline + composer chips).
         .modalOverlay(isPresented: Binding(
             get: { appState.previewAttachment != nil },
@@ -263,11 +269,15 @@ struct NewSessionView: View {
             Text("New session")
                 .font(Theme.title)
                 .foregroundStyle(Theme.textBase)
-            if let root = appState.projectRoot {
+            if let workspace = appState.workspace {
                 VStack(spacing: 4) {
-                    Text(root.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                        .font(Theme.captionMedium)
-                        .foregroundStyle(Theme.textFaint)
+                    ForEach(workspace.folders, id: \.self) { folder in
+                        Text(folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                            .font(Theme.captionMedium)
+                            .foregroundStyle(Theme.textFaint)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                     Button("Start chatting") { appState.newChat() }
                         .buttonStyle(DockButtonStyle(variant: .primary))
                         .padding(.top, 8)

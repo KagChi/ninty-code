@@ -35,6 +35,9 @@ struct DisplayMessage: Identifiable, Equatable {
     var elapsed: TimeInterval?
     /// Turn token total (input+output+reasoning+cache) — stamped on completion.
     var tokenCount: Int?
+    /// Queued steer message (sent while streaming, not yet drained) — shown
+    /// immediately as a user bubble with a "queued" caption.
+    var isQueued = false
 
     init(role: Role, text: String = "", blocks: [DisplayBlock]? = nil, isMarker: Bool = false, images: [String] = []) {
         self.role = role
@@ -106,7 +109,21 @@ final class ChatStore {
     private(set) var systemPrompt = ""
 
     let sessionID: String
-    let projectRoot: URL
+    /// Owning workspace (session storage key + tab grouping).
+    let workspaceID: String
+    /// Display name (tab avatar initial).
+    let workspaceName: String
+    /// Workspace roots, first = primary. Multi-root mentions carry folder prefixes.
+    private(set) var projectRoots: [URL]
+    /// Primary root (compat convenience).
+    var projectRoot: URL { projectRoots[0] }
+
+    /// Workspace folders changed (edit-workspace flow): adopt the new root set.
+    func updateRoots(_ roots: [URL]) {
+        guard !roots.isEmpty, roots != projectRoots else { return }
+        projectRoots = roots
+        Task { await session.setProjectRoots(roots) }
+    }
     private(set) var agent: Agent
     private(set) var model: String
     /// Full "provider/model" reference — persisted in meta so reopening restores the provider too.
@@ -175,10 +192,9 @@ final class ChatStore {
                 dataURL: "data:\(mime);base64,\(data.base64EncodedString())"
             ))
         } else {
-            let path = url.path
-            mentionToInsert = path.hasPrefix(projectRoot.path + "/")
-                ? String(path.dropFirst(projectRoot.path.count + 1))
-                : path
+            // Multi-root: folder-prefixed relative path (ToolContext resolves it back).
+            mentionToInsert = ToolContext(projectRoots: projectRoots, sessionID: sessionID)
+                .mentionPath(for: url)
         }
     }
 
@@ -202,7 +218,9 @@ final class ChatStore {
         modelReference: String,
         contextWindow: Int,
         maxOutput: Int = 8_192,
-        projectRoot: URL,
+        workspaceID: String,
+        workspaceName: String,
+        projectRoots: [URL],
         projectInstructions: String?,
         mcpManager: MCPManager?,
         onChange: @escaping () -> Void
@@ -211,7 +229,9 @@ final class ChatStore {
         self.agent = agent
         self.model = model
         self.modelReference = modelReference
-        self.projectRoot = projectRoot
+        self.workspaceID = workspaceID
+        self.workspaceName = workspaceName
+        self.projectRoots = projectRoots
         self.contextWindow = contextWindow
         self.onChange = onChange
 
@@ -225,7 +245,7 @@ final class ChatStore {
                 }
             }
         }
-        let store = SessionStore(projectRoot: projectRoot)
+        let store = SessionStore(storageKey: workspaceID)
         self.store = store
         self.session = AgentSession(
             id: sessionID,
@@ -237,7 +257,7 @@ final class ChatStore {
             registry: registry,
             store: store,
             todoStore: todoStore,
-            projectRoot: projectRoot,
+            projectRoots: projectRoots,
             projectInstructions: projectInstructions
         )
         // Restore existing history when reopening a session.
@@ -338,6 +358,20 @@ final class ChatStore {
             Task { lastInputTokens = await session.lastInputTokens }
         case .queueChanged(let queue):
             followups = queue
+            // Sync queued flags: the last queue.count user bubbles are queued.
+            for index in messages.indices { messages[index].isQueued = false }
+            var remaining = queue.count
+            for index in messages.indices.reversed() where remaining > 0 {
+                if messages[index].role == .user, !messages[index].isMarker {
+                    messages[index].isQueued = true
+                    remaining -= 1
+                }
+            }
+        case .followupStarted:
+            // Queued turn became active: fresh timing (elapsed is per-turn),
+            // user bubble already on screen — reply starts a new bubble.
+            streaming = true
+            turnStartedAt = Date()
         case .revertStateChanged:
             break // revertedMessages array is the UI source of truth
         case .retrying(let attempt, let delay):
@@ -421,6 +455,11 @@ final class ChatStore {
             Task { await session.commitRevertedState(keepingMessages: keep) }
         }
         if streaming {
+            // Show the queued steer message immediately as its own bubble —
+            // the drain flips isQueued off and the reply lands in a NEW bubble.
+            var queued = DisplayMessage(role: .user, text: trimmed, images: images)
+            queued.isQueued = true
+            messages.append(queued)
             Task { await session.send(trimmed, images: images) } // session enqueues
             return
         }
@@ -445,17 +484,32 @@ final class ChatStore {
     /// /fork dialog visibility.
     var showForkDialog = false
 
-    /// Pull a queued follow-up back into the composer for editing.
+    /// Pull a queued follow-up back into the composer for editing. Its
+    /// queued bubble leaves the timeline (the message was never sent).
     func editFollowup(at index: Int) {
         Task {
             if let text = await session.dequeueFollowup(at: index) {
+                if let bubbleIndex = queuedBubbleIndex(at: index) {
+                    messages.remove(at: bubbleIndex)
+                }
                 restoredDraft = text
             }
         }
     }
 
+    /// Queue index → messages index of that queued bubble (queued bubbles are
+    /// the last queue.count user bubbles, in order).
+    private func queuedBubbleIndex(at queueIndex: Int) -> Int? {
+        var seen = 0
+        for index in messages.indices where messages[index].isQueued {
+            if seen == queueIndex { return index }
+            seen += 1
+        }
+        return nil
+    }
+
     func sendFollowupNow(at index: Int) {
-        messages.append(DisplayMessage(role: .user, text: followups[index]))
+        // Bubble already shown from queue time — just flip timing/flags.
         streaming = true
         turnStartedAt = Date()
         Task { await session.sendFollowupNow(at: index) }
@@ -579,7 +633,7 @@ final class ChatStore {
             do {
                 let result = try await BashTool().execute(
                     ["command": .string(trimmed)],
-                    ctx: ToolContext(projectRoot: projectRoot, sessionID: sessionID)
+                    ctx: ToolContext(projectRoots: projectRoots, sessionID: sessionID)
                 )
                 updateToolCall(id: callID, name: "bash", output: result.output, isError: result.isError)
             } catch {

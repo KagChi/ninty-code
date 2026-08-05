@@ -30,6 +30,13 @@ Both must pass before work is considered done.
 - Providers: single `OpenAICompatibleProvider` implementation + presets. Do not add per-vendor providers without explicit request.
 - Markdown: manual fence-segmentation in `MarkdownText` (no swift-markdown dep). Keep it that way unless a dep is justified.
 
+## Workspaces (multi-root)
+
+- Projects are `Workspace`s (VS Code style): `id`, `name`, `folders[]` — folders[0] = primary root (bash cwd, config source, default for relative paths). Persisted at `~/.config/ninty/workspaces.json` via `WorkspaceStore`.
+- `ToolContext` takes `projectRoots: [URL]`. Path rules: absolute passes through; `folderName/relative` addresses the root with that folder name; plain relative resolves against primary. `isInsideProject` = inside ANY root. `mentionPath(for:)` = root-relative, folder-prefixed only when multi-root.
+- Sessions are keyed by workspace id (`SessionStore(storageKey:)`). Migrated legacy projects use the old path-hash as workspace id, so `SessionStore(projectRoot:)` and the migrated workspace share a directory — never break this.
+- Config: merged from primary root; `AGENTS.md` instructions concatenated from every root (`ConfigLoader.load(roots:)`).
+
 ## Code Style
 
 - Swift 6 language mode, strict concurrency. Actors for all mutable shared state.

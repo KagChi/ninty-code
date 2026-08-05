@@ -104,17 +104,41 @@ struct ComposerView: View {
                     .focused($focused)
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.shift) { return .ignored }
+                        // Mention popup open → Return completes the selection, not send.
+                        if mentionPopupOpen {
+                            insertSelectedMention()
+                            return .handled
+                        }
                         send()
                         return .handled
                     }
+                    .onKeyPress(.tab, phases: .down) { _ in
+                        guard mentionPopupOpen else { return .ignored }
+                        insertSelectedMention()
+                        return .handled
+                    }
                     .onKeyPress(.upArrow, phases: .down) { _ in
-                        historyBack() ? .handled : .ignored
+                        if mentionPopupOpen {
+                            moveMentionSelection(-1)
+                            return .handled
+                        }
+                        return historyBack() ? .handled : .ignored
                     }
                     .onKeyPress(.downArrow, phases: .down) { _ in
-                        historyForward() ? .handled : .ignored
+                        if mentionPopupOpen {
+                            moveMentionSelection(1)
+                            return .handled
+                        }
+                        return historyForward() ? .handled : .ignored
                     }
                     .onKeyPress(.escape, phases: .down) { _ in
-                        escapeTapped() ? .handled : .ignored
+                        // Popup open → Esc only closes the popup (no abort).
+                        if mentionPopupOpen {
+                            mentionQuery = nil
+                            mentionResults = []
+                            return .handled
+                        }
+                        return escapeTapped() ? .handled : .ignored
                     }
                     .onKeyPress(characters: .init(charactersIn: "v"), phases: .down) { press in
                         // Manual ⌘V fallback: the TextEditor can swallow the
@@ -241,11 +265,10 @@ struct ComposerView: View {
                 name: url.lastPathComponent,
                 dataURL: "data:\(mime);base64,\(data.base64EncodedString())"
             ))
-        } else if let projectRoot = appState.projectRoot {
-            let path = url.path
-            let relative = path.hasPrefix(projectRoot.path + "/")
-                ? String(path.dropFirst(projectRoot.path.count + 1))
-                : path
+        } else if let workspace = appState.workspace {
+            // Multi-root: folder-prefixed relative path (ToolContext resolves it back).
+            let relative = ToolContext(projectRoots: workspace.folders, sessionID: "composer")
+                .mentionPath(for: url)
             text += "@\(relative) "
         }
     }
@@ -520,6 +543,14 @@ struct ComposerView: View {
 
     // MARK: - @ mentions (cached project files)
 
+    /// Keyboard selection index into mentionResults (opencode ↑↓+Enter nav).
+    @State private var mentionSelection = 0
+
+    /// Popup visible — arrow/return/tab/escape keys route to it, not the editor.
+    private var mentionPopupOpen: Bool {
+        mentionQuery != nil && !mentionResults.isEmpty
+    }
+
     private func updateMentions() {
         guard let lastToken = text.components(separatedBy: .whitespacesAndNewlines).last,
               lastToken.hasPrefix("@") else {
@@ -530,6 +561,19 @@ struct ComposerView: View {
         let query = String(lastToken.dropFirst())
         mentionQuery = query
         mentionResults = Self.fuzzyMentions(query, in: appState.projectFiles)
+        mentionSelection = 0
+    }
+
+    /// ↑/↓ with wrap-around while the mention popup is open.
+    private func moveMentionSelection(_ delta: Int) {
+        guard !mentionResults.isEmpty else { return }
+        let count = mentionResults.count
+        mentionSelection = (mentionSelection + delta + count) % count
+    }
+
+    private func insertSelectedMention() {
+        guard mentionResults.indices.contains(mentionSelection) else { return }
+        insertMention(mentionResults[mentionSelection])
     }
 
     /// opencode-style fuzzy file matching: subsequence with bonuses for
@@ -577,7 +621,8 @@ struct ComposerView: View {
 
     private var mentionPopup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(mentionResults, id: \.self) { path in
+            ForEach(Array(mentionResults.enumerated()), id: \.element) { index, path in
+                let selected = index == mentionSelection
                 Button {
                     insertMention(path)
                 } label: {
@@ -585,7 +630,7 @@ struct ComposerView: View {
                         FileTypeIcon(path: path)
                         Text(path)
                             .font(Theme.small)
-                            .foregroundStyle(Theme.textBase)
+                            .foregroundStyle(selected ? Theme.textBase : Theme.textMuted)
                             .lineLimit(1)
                         Spacer()
                     }
@@ -595,7 +640,13 @@ struct ComposerView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .backgroundHover
+                // opencode: the keyboard-selected row stays highlighted;
+                // hovering moves the selection to the mouse.
+                .background(
+                    selected ? Theme.overlayPressed : .clear,
+                    in: .rect(cornerRadius: Theme.radiusSmall)
+                )
+                .onHover { if $0 { mentionSelection = index } }
             }
         }
         .padding(6)
@@ -853,14 +904,25 @@ extension Data {
     }
 }
 
+/// Row hover highlight for menu-like lists (@-mention popup, dialogs).
+private struct BackgroundHover: ViewModifier {
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                    .fill(hovered ? Theme.overlayHover : .clear)
+            )
+            .onHover { hovered = $0 }
+            .animation(.easeInOut(duration: 0.1), value: hovered)
+    }
+}
+
 extension View {
     /// Row hover highlight for menu-like lists.
     var backgroundHover: some View {
-        self.overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusSmall)
-                .fill(Theme.overlayHover)
-                .opacity(0)
-        )
+        modifier(BackgroundHover())
     }
 }
 

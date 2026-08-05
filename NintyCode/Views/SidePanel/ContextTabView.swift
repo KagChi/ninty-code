@@ -305,7 +305,7 @@ struct ContextTabView: View {
     }
 
     private func loadRaw() async {
-        let store = SessionStore(projectRoot: chat.projectRoot)
+        let store = SessionStore(storageKey: chat.workspaceID)
         if let loaded = try? await store.load(id: chat.sessionID) {
             rawMessages = loaded.messages
         }

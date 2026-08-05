@@ -89,14 +89,14 @@ struct TabItem: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Project initial badge — always shown (mixed-project strip);
-            // dimmed for foreign projects, spinner overlays while streaming.
+            // Workspace initial badge — always shown (mixed-workspace strip);
+            // dimmed for foreign workspaces, spinner overlays while streaming.
             ZStack {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.accent.opacity(chat.projectRoot == appState.projectRoot ? 1 : 0.45))
+                    .fill(Theme.accent.opacity(chat.workspaceID == appState.workspace?.id ? 1 : 0.45))
                     .frame(width: 18, height: 18)
                     .overlay {
-                        Text(chat.projectRoot.lastPathComponent.prefix(1).uppercased())
+                        Text(chat.workspaceName.prefix(1).uppercased())
                             .font(.system(size: 11, weight: .heavy))
                             .foregroundStyle(.white)
                     }
@@ -107,7 +107,7 @@ struct TabItem: View {
                         .frame(width: 18, height: 18)
                 }
             }
-            .help(chat.projectRoot.lastPathComponent)
+            .help(chat.workspaceName)
             Text(title)
                 .font(Theme.smallMedium)
                 .foregroundStyle(isActive ? Theme.textBase : Theme.textFaint)

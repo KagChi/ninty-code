@@ -4,42 +4,43 @@ import NintyCore
 /// Left sidebar: native NavigationSplitView column — system traffic lights,
 /// native `.searchable` field, list material and hover all come from macOS.
 /// Only custom pieces: the "New session" capsule and the settings footer.
-/// Projects sorted by name (stable order — no row jumping); clicking a
-/// project expands/collapses its sessions, the hover arrow button switches
-/// the active project.
+/// Workspaces sorted by name (stable order — no row jumping); clicking a
+/// workspace expands/collapses its sessions, the hover arrow button switches
+/// the active workspace. Multi-root: header shows a folder-count badge and
+/// Add/Remove Folder context actions.
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @State private var query = ""
 
-    /// Stable alphabetical order — recents reorder on project switch, which
+    /// Stable alphabetical order — MRU reorders on workspace switch, which
     /// used to make the clicked row jump to the top.
-    private var projects: [URL] {
-        var list = appState.recentProjects
-        if let root = appState.projectRoot, !list.contains(root) { list.append(root) }
+    private var workspaces: [Workspace] {
+        var list = appState.workspaces
+        if let active = appState.workspace, !list.contains(active) { list.append(active) }
         return list.sorted {
-            $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
 
-    private func sessions(for project: URL) -> [SessionMeta] {
-        let all = appState.sessionsByProject[project] ?? []
+    private func sessions(for workspace: Workspace) -> [SessionMeta] {
+        let all = appState.sessionsByWorkspace[workspace.id] ?? []
         guard !query.isEmpty else { return all }
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }
 
-    private func isVisible(_ project: URL) -> Bool {
-        query.isEmpty || !sessions(for: project).isEmpty
-            || project.lastPathComponent.localizedCaseInsensitiveContains(query)
+    private func isVisible(_ workspace: Workspace) -> Bool {
+        query.isEmpty || !sessions(for: workspace).isEmpty
+            || workspace.name.localizedCaseInsensitiveContains(query)
     }
 
-    private func expansionBinding(for project: URL) -> Binding<Bool> {
+    private func expansionBinding(for workspace: Workspace) -> Binding<Bool> {
         Binding(
-            get: { appState.expandedProjects.contains(project) },
+            get: { appState.expandedWorkspaces.contains(workspace.id) },
             set: { expanded in
                 if expanded {
-                    appState.expandedProjects.insert(project)
+                    appState.expandedWorkspaces.insert(workspace.id)
                 } else {
-                    appState.expandedProjects.remove(project)
+                    appState.expandedWorkspaces.remove(workspace.id)
                 }
             }
         )
@@ -52,26 +53,26 @@ struct SidebarView: View {
                 .padding(.top, 8)
 
             List {
-                ForEach(projects.filter(isVisible), id: \.self) { url in
-                    Section(isExpanded: expansionBinding(for: url)) {
-                        let projectSessions = sessions(for: url)
-                        if projectSessions.isEmpty {
+                ForEach(workspaces.filter(isVisible)) { workspace in
+                    Section(isExpanded: expansionBinding(for: workspace)) {
+                        let workspaceSessions = sessions(for: workspace)
+                        if workspaceSessions.isEmpty {
                             Text("No sessions yet")
                                 .font(Theme.tiny)
                                 .foregroundStyle(Theme.textFaint)
                         } else {
-                            ForEach(projectSessions) { session in
+                            ForEach(workspaceSessions) { session in
                                 SidebarSessionRow(
                                     session: session,
-                                    project: url,
-                                    projectIsActive: url == appState.projectRoot
+                                    workspace: workspace,
+                                    workspaceIsActive: workspace.id == appState.workspace?.id
                                 )
                             }
                         }
                     } header: {
-                        SidebarProjectHeader(
-                            project: url,
-                            isActive: url == appState.projectRoot
+                        SidebarWorkspaceHeader(
+                            workspace: workspace,
+                            isActive: workspace.id == appState.workspace?.id
                         )
                     }
                 }
@@ -79,7 +80,7 @@ struct SidebarView: View {
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
             .overlay {
-                if projects.isEmpty {
+                if workspaces.isEmpty {
                     Text("Open a project to start.")
                         .font(Theme.small)
                         .foregroundStyle(Theme.textFaint)
@@ -115,7 +116,7 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             Spacer()
-            Button { appState.pickProject() } label: {
+            Button { appState.showNewWorkspaceDialog() } label: {
                 Image(systemName: "folder.badge.plus")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.textMuted)
@@ -123,18 +124,19 @@ struct SidebarView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Add project")
+            .help("New workspace")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
 }
 
-/// Section header: avatar + name. Whole-row tap expands/collapses; hover
-/// reveals the switch-project arrow for non-active projects.
-private struct SidebarProjectHeader: View {
+/// Section header: avatar + name (+ folder-count badge for multi-root).
+/// Whole-row tap expands/collapses; hover reveals the switch arrow for
+/// non-active workspaces. Context menu: add/remove folders, delete workspace.
+private struct SidebarWorkspaceHeader: View {
     @Environment(AppState.self) private var appState
-    let project: URL
+    let workspace: Workspace
     let isActive: Bool
     @State private var hovered = false
     @State private var showDeleteConfirm = false
@@ -145,18 +147,26 @@ private struct SidebarProjectHeader: View {
                 .fill(Theme.accent.opacity(isActive ? 1 : 0.4))
                 .frame(width: 16, height: 16)
                 .overlay {
-                    Text(project.lastPathComponent.prefix(1).uppercased())
+                    Text(workspace.name.prefix(1).uppercased())
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.white)
                 }
-            Text(project.lastPathComponent)
+            Text(workspace.name)
                 .font(Theme.smallMedium)
                 .foregroundStyle(isActive ? Theme.textBase : Theme.textMuted)
                 .lineLimit(1)
+            if workspace.folders.count > 1 {
+                Text("\(workspace.folders.count) folders")
+                    .font(Theme.tiny)
+                    .foregroundStyle(Theme.textFaint)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Theme.textFaint.opacity(0.12), in: .capsule)
+            }
             Spacer()
             if hovered && !isActive {
                 Button {
-                    appState.openProject(project)
+                    appState.openWorkspace(workspace)
                 } label: {
                     Image(systemName: "arrow.right.circle")
                         .font(.system(size: 12))
@@ -164,33 +174,55 @@ private struct SidebarProjectHeader: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Switch to project")
+                .help("Switch to workspace")
             }
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        // Active workspace keeps a visible accent tint; others highlight on hover.
+        .background(
+            isActive ? Theme.accent.opacity(0.18) : (hovered ? Theme.overlayHover : .clear),
+            in: .rect(cornerRadius: Theme.radiusSmall)
+        )
         .contentShape(Rectangle())
         .onTapGesture {
-            if appState.expandedProjects.contains(project) {
-                appState.expandedProjects.remove(project)
+            if appState.expandedWorkspaces.contains(workspace.id) {
+                appState.expandedWorkspaces.remove(workspace.id)
             } else {
-                appState.expandedProjects.insert(project)
+                appState.expandedWorkspaces.insert(workspace.id)
             }
         }
         .onHover { hovered = $0 }
+        .animation(.easeInOut(duration: 0.1), value: hovered)
         .contextMenu {
-            Button("Delete Project…", role: .destructive) { showDeleteConfirm = true }
+            Button("New Session") { appState.newChat(in: workspace) }
+            Divider()
+            Button("Edit Workspace…") { appState.showEditWorkspaceDialog(workspace) }
+            Button("Add Folder…") { appState.pickFolderToAdd(to: workspace) }
+            if workspace.folders.count > 1 {
+                Menu("Remove Folder") {
+                    ForEach(workspace.folders, id: \.self) { folder in
+                        Button(folder.lastPathComponent) {
+                            appState.removeFolder(folder, from: workspace)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Delete Workspace…", role: .destructive) { showDeleteConfirm = true }
         }
         .confirmationDialog(
-            "Delete \(project.lastPathComponent)?",
+            "Delete \(workspace.name)?",
             isPresented: $showDeleteConfirm,
             titleVisibility: .visible
         ) {
-            Button("Delete Project", role: .destructive) {
-                appState.removeProject(project)
+            Button("Delete Workspace", role: .destructive) {
+                appState.removeWorkspace(workspace)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            let count = appState.sessionsByProject[project]?.count ?? 0
-            Text("Removes the project from the sidebar and permanently deletes \(count == 0 ? "all its sessions" : "\(count) session\(count == 1 ? "" : "s")") from disk.")
+            let count = appState.sessionsByWorkspace[workspace.id]?.count ?? 0
+            Text("Removes the workspace from the sidebar and permanently deletes \(count == 0 ? "all its sessions" : "\(count) session\(count == 1 ? "" : "s")") from disk. Folders on disk are not touched.")
         }
     }
 }
@@ -199,12 +231,18 @@ private struct SidebarProjectHeader: View {
 private struct SidebarSessionRow: View {
     @Environment(AppState.self) private var appState
     let session: SessionMeta
-    let project: URL
-    let projectIsActive: Bool
+    let workspace: Workspace
+    let workspaceIsActive: Bool
+    @State private var hovered = false
 
     private var openTab: ChatStore? {
-        guard projectIsActive else { return nil }
+        guard workspaceIsActive else { return nil }
         return appState.openTabs.first { $0.sessionID == session.id }
+    }
+
+    /// The session currently on screen (its tab is active).
+    private var isCurrent: Bool {
+        appState.activeChat?.sessionID == session.id
     }
 
     var body: some View {
@@ -228,11 +266,20 @@ private struct SidebarSessionRow: View {
                 .lineLimit(1)
             Spacer()
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        // Current session keeps a visible tint; others highlight on hover.
+        .background(
+            isCurrent ? Theme.accent.opacity(0.14) : (hovered ? Theme.overlayHover : .clear),
+            in: .rect(cornerRadius: Theme.radiusSmall)
+        )
         .contentShape(Rectangle())
         .onTapGesture { openSession() }
+        .onHover { hovered = $0 }
+        .animation(.easeInOut(duration: 0.1), value: hovered)
         .contextMenu {
             Button("Open") { openSession() }
-            if projectIsActive {
+            if workspaceIsActive {
                 Divider()
                 Button("Delete", role: .destructive) { appState.deleteSession(session.id) }
             }
@@ -240,10 +287,10 @@ private struct SidebarSessionRow: View {
     }
 
     private func openSession() {
-        if projectIsActive {
+        if workspaceIsActive {
             appState.openChat(session.id)
         } else {
-            appState.openSession(session.id, in: project)
+            appState.openSession(session.id, in: workspace)
         }
     }
 }

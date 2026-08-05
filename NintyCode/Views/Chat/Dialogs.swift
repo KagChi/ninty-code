@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NintyCore
 
@@ -228,6 +229,168 @@ private struct ModalOverlay<Content: View>: ViewModifier {
             }
         }
         .animation(.easeInOut(duration: 0.12), value: isPresented)
+    }
+}
+
+/// Workspace create/edit dialog: display name, folder list (add/remove),
+/// additional per-workspace system context (appended to the system prompt
+/// after AGENTS.md). Opened from the sidebar footer (new) or a workspace's
+/// context menu (edit). Save upserts via AppState.saveWorkspace.
+struct WorkspaceDialog: View {
+    @Environment(AppState.self) private var appState
+    let editing: Workspace?
+
+    @State private var name: String
+    @State private var folders: [URL]
+    @State private var systemContext: String
+
+    init(editing: Workspace?) {
+        self.editing = editing
+        _name = State(initialValue: editing?.name ?? "")
+        _folders = State(initialValue: editing?.folders ?? [])
+        _systemContext = State(initialValue: editing?.systemContext ?? "")
+    }
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+    private var canSave: Bool { !trimmedName.isEmpty && !folders.isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(editing == nil ? "New Workspace" : "Edit Workspace")
+                .font(Theme.title)
+                .foregroundStyle(Theme.textBase)
+
+            fieldLabel("Name")
+            TextField("Workspace name", text: $name)
+                .textFieldStyle(.plain)
+                .font(Theme.sans)
+                .foregroundStyle(Theme.textBase)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Theme.layer02, in: .rect(cornerRadius: Theme.radiusSmall))
+
+            HStack {
+                fieldLabel("Folders")
+                Spacer()
+                Button("Add Folder…") { pickFolder() }
+                    .buttonStyle(.plain)
+                    .font(Theme.smallMedium)
+                    .foregroundStyle(Theme.textAccent)
+            }
+            if folders.isEmpty {
+                Text("Add at least one folder. The first folder is the primary root (bash cwd, config source).")
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textFaint)
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(folders, id: \.self) { folder in
+                        folderRow(folder)
+                    }
+                }
+            }
+
+            fieldLabel("Additional system context")
+            TextEditor(text: $systemContext)
+                .font(Theme.small)
+                .foregroundStyle(Theme.textBase)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(height: 96)
+                .background(Theme.layer02, in: .rect(cornerRadius: Theme.radiusSmall))
+                .overlay {
+                    if systemContext.isEmpty {
+                        Text("Extra instructions for this workspace, appended to the system prompt after AGENTS.md…")
+                            .font(Theme.small)
+                            .foregroundStyle(Theme.textFaint)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { appState.showWorkspaceDialog = false }
+                    .buttonStyle(.plain)
+                    .font(Theme.smallMedium)
+                    .foregroundStyle(Theme.textMuted)
+                Button(editing == nil ? "Create" : "Save") { save() }
+                    .buttonStyle(DockButtonStyle(variant: .primary))
+                    .disabled(!canSave)
+                    .opacity(canSave ? 1 : 0.5)
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
+        .glassEffect(.regular, in: .rect(cornerRadius: Theme.radiusLarge))
+        .onExitCommand { appState.showWorkspaceDialog = false }
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.smallMedium)
+            .foregroundStyle(Theme.textMuted)
+    }
+
+    private func folderRow(_ folder: URL) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: folder == folders.first ? "folder.fill" : "folder")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.textFaint)
+            Text(folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                .font(Theme.small)
+                .foregroundStyle(Theme.textBase)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if folder == folders.first, folders.count > 1 {
+                Text("primary")
+                    .font(Theme.tiny)
+                    .foregroundStyle(Theme.textFaint)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Theme.textFaint.opacity(0.12), in: .capsule)
+            }
+            Spacer()
+            Button {
+                folders.removeAll { $0 == folder }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.textFaint)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Theme.layer02, in: .rect(cornerRadius: Theme.radiusSmall))
+    }
+
+    private func pickFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add Folder"
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                if !folders.contains(url) { folders.append(url) }
+                if trimmedName.isEmpty { name = url.lastPathComponent }
+            }
+        }
+    }
+
+    private func save() {
+        var workspace = editing ?? Workspace(name: trimmedName, folders: folders)
+        workspace.name = trimmedName
+        workspace.folders = folders
+        let context = systemContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        workspace.systemContext = context.isEmpty ? nil : context
+        appState.saveWorkspace(workspace, isNew: editing == nil)
+        appState.showWorkspaceDialog = false
     }
 }
 
