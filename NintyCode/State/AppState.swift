@@ -665,22 +665,26 @@ final class AppState {
         }
     }
 
-    /// Execute any bridged `graph:*` tool for the active workspace and parse
-    /// its JSON output. The `workspace` param every graph-mcp tool requires is
-    /// injected automatically; caller args win on conflict.
-    func callGraphTool(_ name: String, _ args: [String: JSONValue] = [:]) async -> Result<JSONValue, GraphToolError> {
+    /// Execute any bridged MCP tool for the active workspace and parse its
+    /// JSON output. `tool` is the bare tool name (e.g. "graph_subgraph",
+    /// "search_memories") matched by `":<tool>"` suffix, so the server's
+    /// config key is free. Graph tools get the `workspace` param they all
+    /// require injected automatically; caller args win on conflict.
+    func callMCPTool(_ tool: String, _ args: [String: JSONValue] = [:]) async -> Result<JSONValue, MCPToolError> {
         guard let workspace, let manager = mcpManagers[workspace.id] else {
             return .failure(.serverUnavailable)
         }
-        guard let tool = await manager.bridgedTools().first(where: { $0.name == "graph:\(name)" }) else {
-            return .failure(.toolNotBridged("graph:\(name)"))
+        guard let bridged = await manager.bridgedTools().first(where: { $0.name.hasSuffix(":\(tool)") }) else {
+            return .failure(.toolNotBridged(tool))
         }
         var merged = args
-        if merged["workspace"] == nil { merged["workspace"] = .string(workspace.id) }
+        if tool.hasPrefix("graph_"), merged["workspace"] == nil {
+            merged["workspace"] = .string(workspace.id)
+        }
         do {
-            let result = try await tool.execute(
+            let result = try await bridged.execute(
                 .object(merged),
-                ctx: ToolContext(projectRoots: workspace.folders, sessionID: "graph-ui")
+                ctx: ToolContext(projectRoots: workspace.folders, sessionID: "mcp-ui")
             )
             guard !result.isError else { return .failure(.toolFailed(result.output)) }
             guard let data = result.output.data(using: .utf8) else {
@@ -696,10 +700,21 @@ final class AppState {
         }
     }
 
-    /// Whether a graph server is bridged for the active workspace.
-    func graphToolAvailable() async -> Bool {
+    /// Whether a tool with this bare name is bridged for the active workspace.
+    func mcpToolAvailable(_ tool: String) async -> Bool {
         guard let workspace, let manager = mcpManagers[workspace.id] else { return false }
-        return await manager.bridgedTools().contains { $0.name == "graph:graph_subgraph" }
+        return await manager.bridgedTools().contains { $0.name.hasSuffix(":\(tool)") }
+    }
+
+    /// Poll until a bridged tool appears (MCP connect is async at app start)
+    /// or give up after ~10s. Tabs call this before showing "unavailable".
+    func waitForMCPTool(_ tool: String) async -> Bool {
+        for _ in 0..<20 {
+            if await mcpToolAvailable(tool) { return true }
+            try? await Task.sleep(for: .milliseconds(500))
+            if Task.isCancelled { return false }
+        }
+        return await mcpToolAvailable(tool)
     }
 
     /// Manual resync: force re-extract + re-upsert every source file.
@@ -729,8 +744,8 @@ extension Array {
     }
 }
 
-/// Failure of a bridged `graph:*` tool call, surfaced in the Graph tab.
-enum GraphToolError: Error, LocalizedError {
+/// Failure of a bridged MCP tool call, surfaced in side-panel tabs.
+enum MCPToolError: Error, LocalizedError {
     case serverUnavailable
     case toolNotBridged(String)
     case toolFailed(String)

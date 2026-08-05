@@ -7,7 +7,7 @@ struct SidePanelView: View {
     @Environment(AppState.self) private var appState
     let chat: ChatStore?
 
-    enum PanelTab { case files, context, graph }
+    enum PanelTab { case files, context, graph, memory }
 
     @State private var tab: PanelTab = .files
     /// Per-root git state — multi-root workspaces show one section per repo folder.
@@ -57,6 +57,8 @@ struct SidePanelView: View {
                 filesContent
             case .graph:
                 GraphTabView()
+            case .memory:
+                LtmTabView()
             case .context:
                 if let chat {
                     ContextTabView(chat: chat)
@@ -84,6 +86,7 @@ struct SidePanelView: View {
                     icon: "doc.on.doc", active: tab == .files) { tab = .files }
             tabPill(title: "Context", icon: "circle.lefthalf.filled", active: tab == .context) { tab = .context }
             tabPill(title: "Graph", icon: "point.3.connected.trianglepath.dotted", active: tab == .graph) { tab = .graph }
+            tabPill(title: "Memory", icon: "brain", active: tab == .memory) { tab = .memory }
             Spacer()
             if tab == .files {
                 Button {

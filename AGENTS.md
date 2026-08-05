@@ -37,6 +37,23 @@ Both must pass before work is considered done.
 - Sessions are keyed by workspace id (`SessionStore(storageKey:)`). Migrated legacy projects use the old path-hash as workspace id, so `SessionStore(projectRoot:)` and the migrated workspace share a directory — never break this.
 - Config: merged from primary root; `AGENTS.md` instructions concatenated from every root (`ConfigLoader.load(roots:)`).
 
+## Graph & Memory (MCP)
+
+Two companion servers (repo `../mcp-servers`, Rust) give the agent a learning loop — recall at session start, store during work — so it stops re-scanning the codebase:
+
+- **graph-mcp** (`graph:*` tools): code knowledge graph in pgvector. Extraction is in-process (`NintyCore/CodeGraph`: regex `LanguageSpec`s for 16 languages, no tree-sitter); the server owns storage, server-side embeddings (candle all-MiniLM-L6-v2, shared with ltm-mcp → same vector space), and queries. `GraphSyncService` full-syncs after MCP connect (mtime+size stamp skip) and incrementally on agent file changes (debounced 1.5s via `ChatStore.onChangedFiles`). node_key = `relPath` / `relPath#Symbol.Path`, folder-prefixed in multi-root. State at `~/.local/share/ninty/graph/<workspace>.json`.
+- **ltm-mcp** (`search_memories`/`store_memory`/...): long-term memory. Scope model: `scope: <workspaceID>` for project facts, `scope: "global"` for cross-project knowledge (never `nil` — that means "no filter"). Agent decides scope per memory; rules + store triggers live in `AgentSession.buildSystemPrompt`.
+- New sessions auto-inject recall (8 workspace + 4 global memories + `graph_status`) via `ChatStore.injectMCPRecall` → `AgentSession.appendSystemContext` (preserved across prompt rebuilds via `extraSystemContext`).
+- Config (`~/.config/ninty/ninty.json`, never hardcode defaults — ports clash, remote needs secrets):
+  ```json
+  "mcp": {
+    "graph": { "url": "http://127.0.0.1:3001/mcp" },
+    "ltm": { "url": "https://ltm-mcp.kagchi.my.id/mcp", "headers": { "Authorization": "Bearer …" } }
+  }
+  ```
+  Use `127.0.0.1`, not `localhost` — OrbStack containers can claim the port on IPv6 first.
+- UI: side panel **Graph** tab (mindmap via `graph_subgraph`) and **Memory** tab (search/browse/store/delete). App-side tool calls go through `AppState.callMCPTool(_:_:)` — bare tool name matched by `":<tool>"` suffix (config key is free); `graph_*` calls auto-inject `workspace`.
+
 ## Code Style
 
 - Swift 6 language mode, strict concurrency. Actors for all mutable shared state.

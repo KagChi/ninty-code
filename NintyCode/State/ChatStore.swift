@@ -206,6 +206,7 @@ final class ChatStore {
 
     private let session: AgentSession
     private let store: SessionStore
+    private let mcpManager: MCPManager?
     private var metaCreated = false
     nonisolated(unsafe) private var eventTask: Task<Void, Never>? // deinit access only
     private let onChange: () -> Void
@@ -236,6 +237,7 @@ final class ChatStore {
         self.projectRoots = projectRoots
         self.contextWindow = contextWindow
         self.onChange = onChange
+        self.mcpManager = mcpManager
 
         let todoStore = TodoStore()
         var registry = ToolRegistry.builtIns(todoStore: todoStore)
@@ -260,7 +262,8 @@ final class ChatStore {
             store: store,
             todoStore: todoStore,
             projectRoots: projectRoots,
-            projectInstructions: projectInstructions
+            projectInstructions: projectInstructions,
+            workspaceID: workspaceID
         )
         // Restore existing history when reopening a session.
         Task {
@@ -273,8 +276,82 @@ final class ChatStore {
                 await session.restoreHistory(loaded.messages)
                 self.messages = loaded.messages.map(Self.displayMessage(from:))
             }
+            // New sessions only: inject LTM recall + graph status so the
+            // agent starts with context instead of re-scanning.
+            if self.messages.isEmpty {
+                await self.injectMCPRecall()
+            }
         }
         subscribe()
+    }
+
+    /// Auto-injected context for new sessions: workspace + global memories
+    /// and code-graph stats, appended to the system prompt once bridged
+    /// MCP tools are up. Silent no-op when no relevant server is bridged.
+    private func injectMCPRecall() async {
+        guard let mcpManager else { return }
+        // MCP connect is async — wait briefly for bridged tools to appear.
+        var tools: [any AgentTool] = []
+        for _ in 0..<20 {
+            tools = await mcpManager.bridgedTools()
+            if !tools.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(500))
+            if Task.isCancelled { return }
+        }
+
+        func call(_ suffix: String, _ args: [String: JSONValue]) async -> JSONValue? {
+            guard let tool = tools.first(where: { $0.name.hasSuffix(":\(suffix)") }),
+                  let result = try? await tool.execute(
+                      .object(args),
+                      ctx: ToolContext(projectRoots: projectRoots, sessionID: sessionID)
+                  ),
+                  !result.isError,
+                  let data = result.output.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(JSONValue.self, from: data)
+        }
+
+        var sections: [String] = []
+
+        for (scope, limit) in [(workspaceID, 8), ("global", 4)] {
+            guard let result = await call("search_memories", [
+                "query": .string(scope == "global"
+                    ? "user preferences, workflow habits, general patterns"
+                    : "project architecture, decisions, gotchas, build, root causes"),
+                "scope": .string(scope),
+                "limit": .int(limit),
+                "search_mode": .string("hybrid")
+            ]), case .array(let items) = result, !items.isEmpty else { continue }
+            let label = scope == "global" ? "Global memory" : "Workspace memory"
+            var lines = "\(label) (scope \(scope)):"
+            for case .object(let memory) in items {
+                guard case .string(let content) = memory["content"] else { continue }
+                var tags: [String] = []
+                if case .array(let tagValues) = memory["tags"] {
+                    tags = tagValues.compactMap { value in
+                        if case .string(let tag) = value { return tag }
+                        return nil
+                    }
+                }
+                let truncated = content.count > 200 ? String(content.prefix(200)) + "…" : content
+                lines += "\n- \(truncated)" + (tags.isEmpty ? "" : " [\(tags.joined(separator: ", "))]")
+            }
+            sections.append(lines)
+        }
+
+        if let status = await call("graph_status", ["workspace": .string(workspaceID)]),
+           case .object(let object) = status,
+           let nodes = object["node_count"], let edges = object["edge_count"] {
+            var line = "Code graph: \(nodes) nodes, \(edges) edges"
+            if let communities = object["communities"] { line += ", \(communities) communities" }
+            line += " (pre-indexed — prefer graph tools over file scans)"
+            sections.append(line)
+        }
+
+        guard !sections.isEmpty else { return }
+        await session.appendSystemContext(
+            "Session recall (auto-injected at session start):\n\n" + sections.joined(separator: "\n\n")
+        )
+        systemPrompt = await session.currentSystemPrompt
     }
 
     deinit { eventTask?.cancel() }

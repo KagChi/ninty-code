@@ -52,7 +52,10 @@ public actor AgentSession {
     private let snapshots = SnapshotStore()
     private var projectRoots: [URL]
     private let projectInstructions: String?
+    private let workspaceID: String?
     private var systemPrompt: String
+    /// Context appended after init (MCP recall); preserved across prompt rebuilds.
+    private var extraSystemContext = ""
 
     private var history: [Message]
     /// Last known input tokens (post-compaction estimate after summarization).
@@ -80,7 +83,8 @@ public actor AgentSession {
         store: SessionStore,
         todoStore: TodoStore,
         projectRoots: [URL],
-        projectInstructions: String?
+        projectInstructions: String?,
+        workspaceID: String? = nil
     ) {
         self.id = id
         self.agent = agent
@@ -93,6 +97,7 @@ public actor AgentSession {
         self.todoStore = todoStore
         self.projectRoots = projectRoots
         self.projectInstructions = projectInstructions
+        self.workspaceID = workspaceID
         self.permissionEngine = PermissionEngine()
 
         self.systemPrompt = ""
@@ -101,11 +106,14 @@ public actor AgentSession {
         self.events = AsyncStream { continuation = $0 }
         self.continuation = continuation
         self.systemPrompt = Self.buildSystemPrompt(
-            agent: agent, projectRoots: projectRoots, projectInstructions: projectInstructions
+            agent: agent, projectRoots: projectRoots, projectInstructions: projectInstructions,
+            workspaceID: workspaceID
         )
     }
 
-    private static func buildSystemPrompt(agent: Agent, projectRoots: [URL], projectInstructions: String?) -> String {
+    private static func buildSystemPrompt(
+        agent: Agent, projectRoots: [URL], projectInstructions: String?, workspaceID: String?
+    ) -> String {
         var prompt = agent.systemPrompt + """
 
         Environment:
@@ -132,6 +140,31 @@ public actor AgentSession {
 
         - OS: macOS (Apple Silicon)
         - Date: \(ISO8601DateFormatter().string(from: Date()).prefix(10))
+        """
+        let memoryScope = workspaceID ?? "this workspace's id"
+        prompt += """
+
+
+        Bridged MCP tools (when the tool list includes them):
+        - `*:graph_query` / `*:graph_explain` / `*:graph_path`: the workspace's code is \
+        pre-indexed as a symbol graph. Use these to locate symbols and trace dependencies \
+        INSTEAD of grep/read scans — they are cheaper and return relationships directly.
+        - `*:graph_search`: semantic "where is X implemented" lookup over the same graph.
+
+        Long-term memory (`*:search_memories`, `*:list_memories`, `*:store_memory`, \
+        `*:update_memory`) — a learning loop across sessions:
+        - Recall: check memories before re-deriving established facts. Use scope \
+        "\(memoryScope)" for project facts, scope "global" for cross-project knowledge, \
+        no scope filter when unsure.
+        - Store: when you learn something durable, decide its scope — "global" if it \
+        stays true in other projects (user preferences, general patterns), the workspace \
+        id if it only holds for this codebase (architecture, build gotchas, decisions, \
+        bug root causes). When in doubt, use the workspace id.
+        - Triggers: after fixing a bug (root cause + fix), when the user corrects you \
+        (their preference), when you discover non-obvious architecture, when a design \
+        decision is made (with the why).
+        - Hygiene: search before storing; if the topic already exists, update_memory \
+        instead of duplicating. Keep memories short and factual.
         """
         if let instructions = projectInstructions, !instructions.isEmpty {
             prompt += "\n\nProject instructions (AGENTS.md):\n\(instructions)"
@@ -185,8 +218,9 @@ public actor AgentSession {
     public func setAgent(_ newAgent: Agent) {
         agent = newAgent
         systemPrompt = Self.buildSystemPrompt(
-            agent: newAgent, projectRoots: projectRoots, projectInstructions: projectInstructions
-        )
+            agent: newAgent, projectRoots: projectRoots, projectInstructions: projectInstructions,
+            workspaceID: workspaceID
+        ) + extraSystemContext
         continuation.yield(.agentChanged(newAgent))
     }
 
@@ -196,8 +230,9 @@ public actor AgentSession {
         guard !roots.isEmpty, roots != projectRoots else { return }
         projectRoots = roots
         systemPrompt = Self.buildSystemPrompt(
-            agent: agent, projectRoots: roots, projectInstructions: projectInstructions
-        )
+            agent: agent, projectRoots: roots, projectInstructions: projectInstructions,
+            workspaceID: workspaceID
+        ) + extraSystemContext
     }
 
     public func setModel(_ newModel: String) {
@@ -231,6 +266,13 @@ public actor AgentSession {
 
     /// Current system prompt (context tab "System Prompt" card).
     public var currentSystemPrompt: String { systemPrompt }
+
+    /// Append extra context to the system prompt (e.g. MCP recall injected
+    /// after bridged tools connect, which happens after init).
+    public func appendSystemContext(_ text: String) {
+        extraSystemContext += "\n\n" + text
+        systemPrompt += "\n\n" + text
+    }
 
     /// /undo: restore files changed during the last user turn. Caller hides the messages.
     public func revert() async -> [String] {

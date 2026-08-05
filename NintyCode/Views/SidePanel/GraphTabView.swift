@@ -350,11 +350,11 @@ struct GraphTabView: View {
 
     private func load() async {
         status = .loading
-        guard await appState.graphToolAvailable() else {
+        guard await appState.waitForMCPTool("graph_subgraph") else {
             status = .unavailable
             return
         }
-        let subgraph = await appState.callGraphTool("graph_subgraph", [
+        let subgraph = await appState.callMCPTool("graph_subgraph", [
             "limit": .int(500)
         ])
         let payload: [String: JSONValue]
@@ -376,7 +376,7 @@ struct GraphTabView: View {
             return
         }
         scene.load(nodes: nodes, edges: edges)
-        if case .success(let stats) = await appState.callGraphTool("graph_status"),
+        if case .success(let stats) = await appState.callMCPTool("graph_status"),
            case .object(let object) = stats {
             let nodeCount = object["node_count"]?.intValue ?? nodes.count
             let edgeCount = object["edge_count"]?.intValue ?? edges.count
@@ -728,20 +728,5 @@ private struct ScrollWheelPan: NSViewRepresentable {
 private extension CGPoint {
     func distance(to other: CGPoint) -> CGFloat {
         ((x - other.x) * (x - other.x) + (y - other.y) * (y - other.y)).squareRoot()
-    }
-}
-
-private extension JSONValue {
-    var stringValue: String? {
-        if case .string(let value) = self { return value }
-        return nil
-    }
-
-    var intValue: Int? {
-        switch self {
-        case .int(let value): return value
-        case .double(let value): return Int(value)
-        default: return nil
-        }
     }
 }
