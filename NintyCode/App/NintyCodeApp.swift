@@ -13,11 +13,9 @@ struct NintyCodeApp: App {
                 .preferredColorScheme(.dark)
                 .onAppear { appState.bootstrap() }
         }
-        // Hidden titlebar, no toolbar (WindowStyler removes it): the tab
-        // strip is the top content row, traffic lights float over the
-        // sidebar. Docs: custom toolbar items can't stretch (min/maxSize
-        // deprecated; only NSSearchField grows) and content can't overlap
-        // the bar — so the only gapless top is a toolbar-less window.
+        // Hidden titlebar + native toolbar: system toggle and traffic
+        // lights live in the bar; the tab capsule rides as the centered
+        // principal item (fitting-size — the toolbar's native model).
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 750)
         .commands {
@@ -34,58 +32,100 @@ struct NintyCodeApp: App {
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var detailWidth: CGFloat = 0
+    @State private var appliedBandWidth: CGFloat = 600
+    @State private var healGeneration = 0
+    @State private var bandTask: Task<Void, Never>?
+
+    /// Toolbar middle band ≈ detail column width minus what the bar
+    /// reserves: 72pt for separator/window insets with the sidebar open;
+    /// a collapsed sidebar parks its toggle inside the band (+88 → 160).
+    private var targetBandWidth: CGFloat {
+        max(240, detailWidth - (columnVisibility == .all ? 72 : 160))
+    }
+
+    /// Band shrinking must apply NOW (a late shrink leaves the item wider
+    /// than the band → ejected to overflow); growing waits out the sidebar
+    /// slide animation (an early grow ejects too — AppKit overflow is
+    /// sticky, it never pulls items back on its own).
+    private func applyBandWidth(_ target: CGFloat) {
+        bandTask?.cancel()
+        if target < appliedBandWidth {
+            appliedBandWidth = target
+        }
+        bandTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            appliedBandWidth = target
+        }
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView()
                 .navigationSplitViewColumnWidth(260)
         } detail: {
-            // Tab strip is a plain content row, NOT a toolbar item — Apple
-            // docs settle it: custom toolbar items are auto-sized to fitting
-            // size (min/maxSize deprecated, no replacement); only
-            // NSSearchField stretches. Strips spanning a split column are
-            // meant to be top-aligned accessories below the toolbar, which
-            // is what this row is.
-            VStack(spacing: 8) {
-                TabStripView(onToggleSidebar: {
-                    columnVisibility = columnVisibility == .all ? .detailOnly : .all
-                })
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // Sidebar collapsed → detail column starts at x=0 and the
-                    // floating traffic lights overlap the strip's leading.
-                    .padding(.leading, columnVisibility == .all ? 0 : 80)
-
-                HStack(spacing: 0) {
-                    ZStack {
-                        if let chat = appState.activeChat {
-                            ChatView(store: chat)
-                        } else {
-                            NewSessionView()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                    .raisedElevation(cornerRadius: 10)
-
-                    if appState.showSidePanel {
-                        SidePanelResizeHandle(width: Binding(
-                            get: { appState.sidePanelWidth },
-                            set: { appState.sidePanelWidth = $0 }
-                        ))
-                        SidePanelView(chat: appState.activeChat)
-                            .frame(width: appState.sidePanelWidth)
-                            .frame(maxHeight: .infinity)
-                            .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                            .raisedElevation(cornerRadius: 10)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+            HStack(spacing: 0) {
+                ZStack {
+                    if let chat = appState.activeChat {
+                        ChatView(store: chat)
+                    } else {
+                        NewSessionView()
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                .raisedElevation(cornerRadius: 10)
+
+                if appState.showSidePanel {
+                    SidePanelResizeHandle(width: Binding(
+                        get: { appState.sidePanelWidth },
+                        set: { appState.sidePanelWidth = $0 }
+                    ))
+                    SidePanelView(chat: appState.activeChat)
+                        .frame(width: appState.sidePanelWidth)
+                        .frame(maxHeight: .infinity)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                        .raisedElevation(cornerRadius: 10)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            // Real content-column width — reliable measurement, never 0
+            // (unlike toolbar-sibling frames mid-rebuild).
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                detailWidth = $0
             }
             .padding(8)
             .background(Theme.bgDeep)
             .background(WindowStyler())
-            .background(WindowDragView())
+            .toolbar {
+                // Tab capsule as the principal item: centered in the
+                // toolbar's middle band, width tracking the band via
+                // appliedBandWidth. The .id generation is an auto-heal:
+                // bumped after each sidebar toggle, it forces SwiftUI to
+                // remove + re-insert the item, restoring bar placement if
+                // AppKit ever ejects it to the (sticky) overflow.
+                ToolbarItem(placement: .principal) {
+                    TabStripView(bandWidth: appliedBandWidth)
+                        .id(healGeneration)
+                }
+            }
         }
+        .onChange(of: targetBandWidth, initial: true) {
+            applyBandWidth(targetBandWidth)
+        }
+        .onChange(of: columnVisibility) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                healGeneration += 1
+            }
+        }
+        // Bar background hidden (not painted): the window's bgDeep shows
+        // through — uniform with the content, no slab, window chrome and
+        // rounded corners untouched. WindowStyler sets bgDeep + darkAqua
+        // on the window; this keeps item tinting dark.
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .toolbarColorScheme(.dark, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
         .modalOverlay(isPresented: Binding(
             get: { appState.showModelDialog },

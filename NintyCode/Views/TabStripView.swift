@@ -2,26 +2,19 @@ import AppKit
 import SwiftUI
 import NintyCore
 
-/// Tab strip: scrollable tabs + new-tab button in a capsule glass bar.
-/// A plain content row at the top of the detail column (not a toolbar
-/// item) — full width by construction.
+/// Tab strip: tabs + new-tab button in a capsule glass bar, hosted as the
+/// toolbar's `.principal` item. Width comes from the caller: the detail
+/// column width measured via onGeometryChange (always real, never 0)
+/// minus a clearance constant covering the toggle zone, separator and
+/// window insets. Fixed fill — the capsule always matches the middle
+/// band, so it can never eject to the overflow chevron. Tabs scroll
+/// inside past the band width.
 struct TabStripView: View {
     @Environment(AppState.self) private var appState
-    /// No toolbar → no system sidebar toggle; the strip hosts our own.
-    var onToggleSidebar: () -> Void = {}
+    var bandWidth: CGFloat = 600
 
     var body: some View {
         HStack(spacing: 6) {
-            Button(action: onToggleSidebar) {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.textMuted)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Toggle sidebar (⌃⌘S)")
-
             if appState.openTabs.isEmpty {
                 Text("No open tabs")
                     .font(Theme.small)
@@ -30,13 +23,7 @@ struct TabStripView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            ForEach(appState.openTabs, id: \.sessionID) { chat in
-                                TabItem(chat: chat)
-                                    .id(chat.sessionID)
-                            }
-                        }
-                        .padding(.horizontal, 2)
+                        tabRow
                     }
                     .onChange(of: appState.activeChat?.sessionID) {
                         if let id = appState.activeChat?.sessionID {
@@ -48,9 +35,19 @@ struct TabStripView: View {
             NewTabButton()
         }
         .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity)
         .frame(height: 36)
+        .frame(width: bandWidth)
         .glassEffect(.regular, in: .capsule)
+    }
+
+    private var tabRow: some View {
+        HStack(spacing: 4) {
+            ForEach(appState.openTabs, id: \.sessionID) { chat in
+                TabItem(chat: chat)
+                    .id(chat.sessionID)
+            }
+        }
+        .padding(.horizontal, 2)
     }
 }
 
