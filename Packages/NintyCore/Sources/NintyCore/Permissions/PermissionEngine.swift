@@ -49,10 +49,10 @@ public struct PermissionSet: Sendable, Equatable {
         return action(for: tool)
     }
 
-    /// opencode: `.opencode/plans/*.md` (project) or global plans dir — matched loosely by suffix.
+    /// `.ninty/plans/*.md` (project) or global plans dir — matched loosely by suffix.
     static func isPlansPath(_ path: String) -> Bool {
         path.hasSuffix(".md")
-            && (path.contains(".opencode/plans/") || path.contains(".config/ninty/plans/") || path.contains(".local/share/ninty/plans/"))
+            && (path.contains(".ninty/plans/") || path.contains(".config/ninty/plans/") || path.contains(".local/share/ninty/plans/"))
     }
 }
 

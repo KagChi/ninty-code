@@ -41,7 +41,7 @@ public struct Agent: Sendable, Equatable, Identifiable {
         You are in PLAN MODE: read-only analysis.
         - You may read, search, and list files freely.
         - You may NOT create, edit, or delete files — EXCEPT writing the plan
-          file itself under .opencode/plans/ (markdown only).
+          file itself under .ninty/plans/ (markdown only).
         - Ask before running any shell command.
         - Deliver analysis and a step-by-step plan. Do not implement.
         """,

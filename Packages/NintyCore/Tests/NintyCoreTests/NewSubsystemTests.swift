@@ -192,16 +192,16 @@ struct PermissionPatternTests {
         let rules = PermissionSet(rules: ["write": .deny, "edit": .deny, "*": .allow])
         #expect(rules.action(
             for: "write",
-            arguments: ["path": ".opencode/plans/2026-01-01-x.md"],
+            arguments: ["path": ".ninty/plans/2026-01-01-x.md"],
             isPlan: true
         ) == .allow)
         #expect(rules.action(for: "write", arguments: ["path": "src/main.swift"], isPlan: true) == .deny)
         #expect(rules.action(
             for: "write",
-            arguments: ["path": ".opencode/plans/x.md"],
+            arguments: ["path": ".ninty/plans/x.md"],
             isPlan: false
         ) == .deny)
-        #expect(rules.action(for: "write", arguments: ["path": ".opencode/plans/x.txt"], isPlan: true) == .deny)
+        #expect(rules.action(for: "write", arguments: ["path": ".ninty/plans/x.txt"], isPlan: true) == .deny)
     }
 }
 

@@ -78,4 +78,4 @@ Two companion servers (repo `../mcp-servers`, Rust) give the agent a learning lo
 
 ## Docs
 
-- Update this file and `.opencode/plans/` whenever structure, commands, or conventions change.
+- Update this file and `.ninty/plans/` whenever structure, commands, or conventions change.
