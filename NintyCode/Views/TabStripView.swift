@@ -2,14 +2,26 @@ import AppKit
 import SwiftUI
 import NintyCore
 
-/// Tab strip: scrollable tabs + new-tab button. Lives in the detail column's
-/// native toolbar as the principal item — the system owns sizing, so no
-/// fixed height here.
+/// Tab strip: scrollable tabs + new-tab button in a capsule glass bar.
+/// A plain content row at the top of the detail column (not a toolbar
+/// item) — full width by construction.
 struct TabStripView: View {
     @Environment(AppState.self) private var appState
+    /// No toolbar → no system sidebar toggle; the strip hosts our own.
+    var onToggleSidebar: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 6) {
+            Button(action: onToggleSidebar) {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textMuted)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Toggle sidebar (⌃⌘S)")
+
             if appState.openTabs.isEmpty {
                 Text("No open tabs")
                     .font(Theme.small)
@@ -37,21 +49,12 @@ struct TabStripView: View {
         }
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
+        .frame(height: 36)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 
-/// Side-panel action. Trailing `ToolbarItemGroup` in the detail toolbar —
-/// the system renders it as a native toolbar item. (No custom sidebar
-/// toggle: the system's built-in one lives in the sidebar column.)
-struct DetailToolbarItems: ToolbarContent {
-    var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            SidePanelButton()
-        }
-    }
-}
-
-/// New session button (⌘T) — toolbar primaryAction group.
+/// New session button (⌘T).
 struct NewTabButton: View {
     @Environment(AppState.self) private var appState
 
@@ -68,23 +71,6 @@ struct NewTabButton: View {
         .buttonStyle(.plain)
         .keyboardShortcut("t", modifiers: .command)
         .help("New session (⌘T)")
-    }
-}
-
-/// Right side panel toggle (⇧⌘R) — toolbar trailing, rightmost. No custom
-/// styling: AppKit renders toolbar buttons with the same chrome as the
-/// system sidebar toggle on the leading side.
-struct SidePanelButton: View {
-    @Environment(AppState.self) private var appState
-
-    var body: some View {
-        Button {
-            appState.showSidePanel.toggle()
-        } label: {
-            Image(systemName: "sidebar.right")
-        }
-        .keyboardShortcut("r", modifiers: [.command, .shift])
-        .help("Toggle side panel (⇧⌘R)")
     }
 }
 

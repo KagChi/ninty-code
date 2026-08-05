@@ -579,6 +579,21 @@ struct SessionHeader: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+
+            // Right side panel toggle (⇧⌘R) — lives in the chat card header
+            // now that the detail toolbar is empty.
+            Button {
+                appState.showSidePanel.toggle()
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textFaint)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .help("Toggle side panel (⇧⌘R)")
         }
         .padding(.horizontal, 16)
         .frame(height: 44)

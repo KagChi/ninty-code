@@ -13,8 +13,11 @@ struct NintyCodeApp: App {
                 .preferredColorScheme(.dark)
                 .onAppear { appState.bootstrap() }
         }
-        // Hidden titlebar + split view toolbar: unified compact chrome with
-        // inline traffic lights; tabs live in the toolbar (principal).
+        // Hidden titlebar, no toolbar (WindowStyler removes it): the tab
+        // strip is the top content row, traffic lights float over the
+        // sidebar. Docs: custom toolbar items can't stretch (min/maxSize
+        // deprecated; only NSSearchField grows) and content can't overlap
+        // the bar — so the only gapless top is a toolbar-less window.
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 750)
         .commands {
@@ -37,48 +40,52 @@ struct ContentView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(260)
         } detail: {
-            HStack(spacing: 0) {
-                ZStack {
-                    if let chat = appState.activeChat {
-                        ChatView(store: chat)
-                    } else {
-                        NewSessionView()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                .raisedElevation(cornerRadius: 10)
+            // Tab strip is a plain content row, NOT a toolbar item — Apple
+            // docs settle it: custom toolbar items are auto-sized to fitting
+            // size (min/maxSize deprecated, no replacement); only
+            // NSSearchField stretches. Strips spanning a split column are
+            // meant to be top-aligned accessories below the toolbar, which
+            // is what this row is.
+            VStack(spacing: 8) {
+                TabStripView(onToggleSidebar: {
+                    columnVisibility = columnVisibility == .all ? .detailOnly : .all
+                })
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Sidebar collapsed → detail column starts at x=0 and the
+                    // floating traffic lights overlap the strip's leading.
+                    .padding(.leading, columnVisibility == .all ? 0 : 80)
 
-                if appState.showSidePanel {
-                    SidePanelResizeHandle(width: Binding(
-                        get: { appState.sidePanelWidth },
-                        set: { appState.sidePanelWidth = $0 }
-                    ))
-                    SidePanelView(chat: appState.activeChat)
-                        .frame(width: appState.sidePanelWidth)
-                        .frame(maxHeight: .infinity)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 10))
-                        .raisedElevation(cornerRadius: 10)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                HStack(spacing: 0) {
+                    ZStack {
+                        if let chat = appState.activeChat {
+                            ChatView(store: chat)
+                        } else {
+                            NewSessionView()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                    .raisedElevation(cornerRadius: 10)
+
+                    if appState.showSidePanel {
+                        SidePanelResizeHandle(width: Binding(
+                            get: { appState.sidePanelWidth },
+                            set: { appState.sidePanelWidth = $0 }
+                        ))
+                        SidePanelView(chat: appState.activeChat)
+                            .frame(width: appState.sidePanelWidth)
+                            .frame(maxHeight: .infinity)
+                            .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                            .raisedElevation(cornerRadius: 10)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
             }
             .padding(8)
             .background(Theme.bgDeep)
-            .background(ToolbarItemStretcher(
-                itemID: "tabstrip",
-                leadingReserve: columnVisibility == .all ? 261 : 0
-            ))
-            .toolbar {
-                ToolbarItem(id: "tabstrip", placement: .principal) {
-                    TabStripView()
-                }
-                DetailToolbarItems()
-            }
+            .background(WindowStyler())
+            .background(WindowDragView())
         }
-        // Fullscreen paints the toolbar bar with the window's (light)
-        // appearance material — force our dark color + dark scheme instead.
-        .toolbarBackground(Theme.bgDeep, for: .windowToolbar)
-        .toolbarColorScheme(.dark, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.15), value: appState.showSidePanel)
         .modalOverlay(isPresented: Binding(
             get: { appState.showModelDialog },
