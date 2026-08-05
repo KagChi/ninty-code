@@ -39,13 +39,17 @@ struct GraphTabView: View {
                 emptyState(
                     icon: "point.3.connected.trianglepath.dotted",
                     title: "Graph is empty",
-                    message: "Sync this workspace to build its code graph."
+                    message: "Sync this workspace to build its code graph.",
+                    actionLabel: resyncing ? nil : "Sync workspace",
+                    action: sync
                 )
             case .error(let message):
                 emptyState(
                     icon: "exclamationmark.triangle",
                     title: "Graph query failed",
-                    message: message
+                    message: message,
+                    actionLabel: resyncing ? nil : "Retry sync",
+                    action: sync
                 )
             case .ready:
                 toolbar
@@ -129,14 +133,7 @@ struct GraphTabView: View {
             .buttonStyle(.plain)
             .help("Reset view")
 
-            Button {
-                resyncing = true
-                Task {
-                    await appState.resyncGraph()
-                    await load()
-                    resyncing = false
-                }
-            } label: {
+            Button(action: sync) {
                 Image(systemName: resyncing ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.textMuted)
@@ -331,7 +328,7 @@ struct GraphTabView: View {
         }
     }
 
-    private func emptyState(icon: String, title: String, message: String) -> some View {
+    private func emptyState(icon: String, title: String, message: String, actionLabel: String? = nil, action: (() -> Void)? = nil) -> some View {
         VStack(spacing: 10) {
             Spacer()
             Image(systemName: icon).font(.system(size: 28)).foregroundStyle(Theme.textMuted)
@@ -341,12 +338,38 @@ struct GraphTabView: View {
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
+            if let actionLabel, let action {
+                Button(action: action) {
+                    Text(actionLabel)
+                        .font(Theme.caption)
+                        .foregroundStyle(Theme.textBase)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(Theme.layer01)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.borderBase))
+                }
+                .buttonStyle(.plain)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity)
     }
 
     // MARK: - Loading
+
+    private func sync() {
+        resyncing = true
+        Task {
+            let ok = await appState.resyncGraph()
+            if ok {
+                await load()
+            } else {
+                status = .error("Graph sync failed — check the graph-mcp server connection.")
+            }
+            resyncing = false
+        }
+    }
 
     private func load() async {
         status = .loading

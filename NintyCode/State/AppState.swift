@@ -718,9 +718,11 @@ final class AppState {
     }
 
     /// Manual resync: force re-extract + re-upsert every source file.
-    func resyncGraph() async {
-        guard let workspace else { return }
-        _ = await ensureGraphSync().syncFull(workspace: workspace.id, roots: workspace.folders, force: true)
+    /// Returns false when no graph server is bridged or an upsert failed.
+    @discardableResult
+    func resyncGraph() async -> Bool {
+        guard let workspace else { return false }
+        return await ensureGraphSync().syncFull(workspace: workspace.id, roots: workspace.folders, force: true) != nil
     }
 
     /// Enable/disable an MCP server: persists the flag to the global config,
