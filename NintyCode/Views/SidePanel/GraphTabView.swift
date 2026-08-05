@@ -1,3 +1,4 @@
+import AppKit
 import NintyCore
 import SwiftUI
 
@@ -93,6 +94,42 @@ struct GraphTabView: View {
             Text(statsText).font(Theme.caption).foregroundStyle(Theme.textMuted)
 
             Button {
+                scene.zoomStep(1 / 1.3)
+            } label: {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textMuted)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Zoom out")
+
+            Button {
+                scene.zoomStep(1.3)
+            } label: {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textMuted)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Zoom in")
+
+            Button {
+                scene.resetView()
+            } label: {
+                Image(systemName: "viewfinder")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textMuted)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Reset view")
+
+            Button {
                 resyncing = true
                 Task {
                     await appState.resyncGraph()
@@ -125,14 +162,23 @@ struct GraphTabView: View {
     }
 
     private var graphCanvas: some View {
-        Canvas { context, size in
+        Canvas { context, _ in
+            context.translateBy(x: scene.offset.width, y: scene.offset.height)
+            context.scaleBy(x: scene.scale, y: scene.scale)
+
+            // Edges batched into one Path per kind: a handful of strokes total
+            // instead of thousands of individual stroke calls.
+            var edgePaths: [String: Path] = [:]
             for edge in scene.edges {
                 guard let from = scene.node(for: edge.from), let to = scene.node(for: edge.to) else { continue }
-                var path = Path()
-                path.move(to: from.position)
-                path.addLine(to: to.position)
-                context.stroke(path, with: .color(edgeColor(edge).opacity(0.25)), lineWidth: 0.7)
+                edgePaths[edge.kind, default: Path()].move(to: from.position)
+                edgePaths[edge.kind, default: Path()].addLine(to: to.position)
             }
+            for (kind, path) in edgePaths {
+                context.stroke(path, with: .color(edgeColor(kind).opacity(0.25)), lineWidth: 0.7 / scene.scale)
+            }
+
+            let showLabels = scene.scale > 0.6
             for node in scene.nodes where matches(node) {
                 let radius = scene.radius(for: node)
                 let isSelected = selected?.id == node.id
@@ -141,33 +187,64 @@ struct GraphTabView: View {
                 let rect = CGRect(x: node.position.x - radius, y: node.position.y - radius, width: radius * 2, height: radius * 2)
                 context.fill(Path(ellipseIn: rect), with: .color(color))
                 if isSelected {
-                    context.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(.white), lineWidth: 1.4)
+                    context.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(.white), lineWidth: 1.4 / scene.scale)
                 }
-                if radius >= 7 || isSelected {
+                if showLabels, radius >= 10 || isSelected {
                     let text = Text(node.name).font(.system(size: 9)).foregroundStyle(Theme.textBase)
                     context.draw(text, at: CGPoint(x: node.position.x, y: node.position.y + radius + 8))
                 }
             }
         }
         .background(Theme.bgBase)
+        .overlay(ScrollWheelPan { dx, dy in
+            scene.offset.width += dx
+            scene.offset.height += dy
+        })
         .gesture(dragGesture)
+        .gesture(magnifyGesture)
         .onTapGesture { location in
-            selected = scene.nearestNode(to: location, within: 14)
+            selected = scene.nearestNode(to: scene.worldPoint(fromScreen: location), within: 14 / scene.scale)
         }
     }
+
+    @State private var lastMagnification: CGFloat = 1
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let delta = value.magnification / lastMagnification
+                lastMagnification = value.magnification
+                scene.zoom(by: delta, atScreen: value.startLocation)
+            }
+            .onEnded { _ in lastMagnification = 1 }
+    }
+
+    @State private var panBase: CGSize?
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if let dragged = scene.draggedNode {
-                    scene.move(dragged, to: value.location)
-                } else if let hit = scene.nearestNode(to: value.location, within: 14) {
+                    scene.move(dragged, to: scene.worldPoint(fromScreen: value.location))
+                } else if let hit = scene.nearestNode(
+                    to: scene.worldPoint(fromScreen: value.startLocation), within: 14 / scene.scale
+                ) {
                     scene.draggedNode = hit
-                    scene.move(hit, to: value.location)
+                    scene.move(hit, to: scene.worldPoint(fromScreen: value.location))
+                } else {
+                    // Empty space: pan the canvas.
+                    if panBase == nil { panBase = scene.offset }
+                    if let panBase {
+                        scene.offset = CGSize(
+                            width: panBase.width + value.translation.width,
+                            height: panBase.height + value.translation.height
+                        )
+                    }
                 }
             }
             .onEnded { _ in
                 scene.draggedNode = nil
+                panBase = nil
             }
     }
 
@@ -244,8 +321,8 @@ struct GraphTabView: View {
         }
     }
 
-    private func edgeColor(_ edge: GraphEdgeUI) -> Color {
-        switch edge.kind {
+    private func edgeColor(_ kind: String) -> Color {
+        switch kind {
         case "contains": return Color.gray
         case "imports": return graphColor(0x0A, 0x84, 0xFF)
         case "calls": return graphColor(0x30, 0xD1, 0x58)
@@ -371,13 +448,60 @@ final class GraphScene {
     private(set) var edges: [GraphEdgeUI] = []
     var draggedNode: GraphNodeUI?
 
+    // View transform: screen = world * scale + offset.
+    var scale: CGFloat = 1
+    var offset: CGSize = .zero
+
     private var index: [String: Int] = [:]
     private var adjacency: [String: [String]] = [:]
+    private var springs: [Spring] = []
     private var simulationTask: Task<Void, Never>?
     private var canvasSize: CGSize = .init(width: 600, height: 600)
 
     var kinds: [String] {
         Array(Set(nodes.map(\.kind))).sorted()
+    }
+
+    // MARK: - View transform
+
+    func worldPoint(fromScreen point: CGPoint) -> CGPoint {
+        CGPoint(x: (point.x - offset.width) / scale, y: (point.y - offset.height) / scale)
+    }
+
+    func zoom(by factor: CGFloat, atScreen anchor: CGPoint) {
+        let old = scale
+        let new = min(max(old * factor, 0.2), 5)
+        guard new != old else { return }
+        // Keep the world point under the anchor fixed on screen.
+        offset.width = anchor.x - (anchor.x - offset.width) * (new / old)
+        offset.height = anchor.y - (anchor.y - offset.height) * (new / old)
+        scale = new
+    }
+
+    func zoomStep(_ factor: CGFloat) {
+        zoom(by: factor, atScreen: CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2))
+    }
+
+    func resetView() {
+        fitToView()
+    }
+
+    /// Scale + pan so the whole graph fits the canvas with a margin.
+    func fitToView(margin: CGFloat = 40) {
+        guard !nodes.isEmpty else { return }
+        var minX = CGFloat.greatestFiniteMagnitude, maxX = -CGFloat.greatestFiniteMagnitude
+        var minY = CGFloat.greatestFiniteMagnitude, maxY = -CGFloat.greatestFiniteMagnitude
+        for node in nodes {
+            minX = min(minX, node.position.x); maxX = max(maxX, node.position.x)
+            minY = min(minY, node.position.y); maxY = max(maxY, node.position.y)
+        }
+        let w = max(maxX - minX, 1), h = max(maxY - minY, 1)
+        let s = min((canvasSize.width - margin * 2) / w, (canvasSize.height - margin * 2) / h)
+        scale = min(max(s, 0.2), 5)
+        offset = CGSize(
+            width: canvasSize.width / 2 - (minX + w / 2) * scale,
+            height: canvasSize.height / 2 - (minY + h / 2) * scale
+        )
     }
 
     func load(nodes newNodes: [GraphNodeUI], edges newEdges: [GraphEdgeUI]) {
@@ -388,14 +512,15 @@ final class GraphScene {
             adjacency[edge.from, default: []].append(edge.to)
             adjacency[edge.to, default: []].append(edge.from)
         }
-        // Initial placement on a circle.
+        // Initial placement on a wide circle: starting dense is what makes
+        // the first ticks the most expensive.
         let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-        let radius = min(canvasSize.width, canvasSize.height) * 0.35
+        let radius = min(canvasSize.width, canvasSize.height) * 0.45
         for i in nodes.indices {
             let angle = Double(i) / Double(max(nodes.count, 1)) * 2 * .pi
             nodes[i].position = CGPoint(
-                x: center.x + cos(angle) * radius + Double.random(in: -20...20),
-                y: center.y + sin(angle) * radius + Double.random(in: -20...20)
+                x: center.x + cos(angle) * radius + Double.random(in: -60...60),
+                y: center.y + sin(angle) * radius + Double.random(in: -60...60)
             )
             nodes[i].degree = adjacency[nodes[i].id]?.count ?? 0
         }
@@ -403,6 +528,10 @@ final class GraphScene {
         edges = newEdges
         self.adjacency = adjacency
         index = Dictionary(uniqueKeysWithValues: nodes.enumerated().map { ($0.element.id, $0.offset) })
+        springs = newEdges.compactMap { edge in
+            guard let a = index[edge.from], let b = index[edge.to] else { return nil }
+            return Spring(a: a, b: b)
+        }
         startSimulation()
     }
 
@@ -444,78 +573,156 @@ final class GraphScene {
 
     // MARK: - Force simulation
 
+    /// Edge endpoints as node indices (tuples are not Sendable).
+    private struct Spring: Sendable {
+        let a, b: Int
+    }
+
+    /// Value-type snapshot so each tick's force computation runs off the
+    /// main actor; only the cheap write-back happens on main.
+    private struct SimState: Sendable {
+        var positions: [SIMD2<Double>]
+        var velocities: [SIMD2<Double>]
+        let springs: [Spring]
+        let pinned: Int?
+    }
+
     private func startSimulation() {
         simulationTask = Task { [weak self] in
             var alpha = 1.0
             while !Task.isCancelled, alpha > 0.005 {
-                self?.step(alpha: alpha)
-                alpha *= 0.985
-                try? await Task.sleep(for: .milliseconds(16))
+                guard let self, let sim = self.snapshot() else { return }
+                let center = SIMD2<Double>(x: self.canvasSize.width / 2, y: self.canvasSize.height / 2)
+                let stepAlpha = alpha // let-binding: capturing a var would be non-Sendable
+                let stepped = await Task.detached(priority: .userInitiated) {
+                    GraphScene.stepped(sim, alpha: stepAlpha, center: center)
+                }.value
+                guard !Task.isCancelled else { return }
+                self.apply(stepped)
+                alpha *= 0.97
+                try? await Task.sleep(for: .milliseconds(33))
             }
+            self?.fitToView()
         }
     }
 
-    private func step(alpha: Double) {
-        guard !nodes.isEmpty else { return }
-        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-        let springLength: Double = 70
-        let repulsion: Double = 6000
+    private func snapshot() -> SimState? {
+        guard !nodes.isEmpty else { return nil }
+        return SimState(
+            positions: nodes.map { SIMD2(x: $0.position.x, y: $0.position.y) },
+            velocities: nodes.map { SIMD2(x: $0.velocity.dx, y: $0.velocity.dy) },
+            springs: springs,
+            pinned: draggedNode.flatMap { index[$0.id] }
+        )
+    }
 
-        // Repulsion (all pairs).
+    private func apply(_ sim: SimState) {
+        guard sim.positions.count == nodes.count else { return }
         for i in nodes.indices {
-            if nodes[i].id == draggedNode?.id { continue }
-            var force = CGVector.zero
-            for j in nodes.indices where j != i {
-                let delta = CGVector(
-                    dx: nodes[i].position.x - nodes[j].position.x,
-                    dy: nodes[i].position.y - nodes[j].position.y
-                )
-                let distanceSquared = max(delta.dx * delta.dx + delta.dy * delta.dy, 100)
-                let strength = repulsion / distanceSquared
-                let distance = distanceSquared.squareRoot()
-                force.dx += delta.dx / distance * strength
-                force.dy += delta.dy / distance * strength
+            nodes[i].position = CGPoint(x: sim.positions[i].x, y: sim.positions[i].y)
+            nodes[i].velocity = CGVector(dx: sim.velocities[i].x, dy: sim.velocities[i].y)
+        }
+    }
+
+    private nonisolated static func stepped(_ sim: SimState, alpha: Double, center: SIMD2<Double>) -> SimState {
+        var sim = sim
+        let count = sim.positions.count
+        guard count > 0 else { return sim }
+        let springLength = 120.0
+        let repulsion = 16000.0
+        let cutoff = 550.0
+        let cutoffSq = cutoff * cutoff
+
+        // Uniform grid: only nodes in the same or adjacent cells can be
+        // within the repulsion cutoff — skips the O(n²) all-pairs scan.
+        struct Cell: Hashable { var x, y: Int }
+        var grid: [Cell: [Int]] = [:]
+        grid.reserveCapacity(count)
+        for (i, p) in sim.positions.enumerated() {
+            grid[Cell(x: Int(floor(p.x / cutoff)), y: Int(floor(p.y / cutoff))), default: []].append(i)
+        }
+
+        // Repulsion via grid neighbourhoods.
+        for i in 0..<count {
+            if i == sim.pinned { continue }
+            var force = SIMD2<Double>.zero
+            let p = sim.positions[i]
+            let cx = Int(floor(p.x / cutoff))
+            let cy = Int(floor(p.y / cutoff))
+            for gx in (cx - 1)...(cx + 1) {
+                for gy in (cy - 1)...(cy + 1) {
+                    guard let bucket = grid[Cell(x: gx, y: gy)] else { continue }
+                    for j in bucket where j != i {
+                        let delta = p - sim.positions[j]
+                        let distSq = max((delta * delta).sum(), 100)
+                        if distSq > cutoffSq { continue }
+                        let dist = distSq.squareRoot()
+                        force += delta / dist * (repulsion / distSq)
+                    }
+                }
             }
-            // Centering gravity.
-            force.dx += (center.x - nodes[i].position.x) * 0.012
-            force.dy += (center.y - nodes[i].position.y) * 0.012
-            nodes[i].velocity.dx = (nodes[i].velocity.dx + force.dx * alpha) * 0.6
-            nodes[i].velocity.dy = (nodes[i].velocity.dy + force.dy * alpha) * 0.6
+            // Weak centering gravity: keeps components together but lets
+            // the graph spread organically.
+            force += (center - p) * 0.006
+            sim.velocities[i] = (sim.velocities[i] + force * alpha) * 0.6
         }
 
         // Springs along edges.
-        for edge in edges {
-            guard let a = index[edge.from], let b = index[edge.to] else { continue }
-            let delta = CGVector(
-                dx: nodes[b].position.x - nodes[a].position.x,
-                dy: nodes[b].position.y - nodes[a].position.y
-            )
-            let distance = max((delta.dx * delta.dx + delta.dy * delta.dy).squareRoot(), 1)
-            let strength = (distance - springLength) * 0.03 * alpha
-            let fx = delta.dx / distance * strength
-            let fy = delta.dy / distance * strength
-            if nodes[a].id != draggedNode?.id {
-                nodes[a].velocity.dx += fx
-                nodes[a].velocity.dy += fy
-            }
-            if nodes[b].id != draggedNode?.id {
-                nodes[b].velocity.dx -= fx
-                nodes[b].velocity.dy -= fy
-            }
+        for spring in sim.springs {
+            let (a, b) = (spring.a, spring.b)
+            let delta = sim.positions[b] - sim.positions[a]
+            let dist = max((delta * delta).sum().squareRoot(), 1)
+            let f = delta / dist * ((dist - springLength) * 0.03 * alpha)
+            if a != sim.pinned { sim.velocities[a] += f }
+            if b != sim.pinned { sim.velocities[b] -= f }
         }
 
-        // Integrate.
-        for i in nodes.indices where nodes[i].id != draggedNode?.id {
-            nodes[i].position.x += nodes[i].velocity.dx
-            nodes[i].position.y += nodes[i].velocity.dy
-            nodes[i].position.x = min(max(nodes[i].position.x, 20), canvasSize.width - 20)
-            nodes[i].position.y = min(max(nodes[i].position.y, 20), canvasSize.height - 20)
+        // Integrate. No boundary clamp: clamping every tick packs nodes into
+        // a box; gravity + fitToView keep the graph on screen.
+        for i in 0..<count where i != sim.pinned {
+            sim.positions[i] += sim.velocities[i]
         }
+        return sim
     }
 }
 
 private func graphColor(_ r: Int, _ g: Int, _ b: Int) -> Color {
     Color(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
+}
+
+// MARK: - Two-finger scroll pan
+
+/// Transparent overlay that catches trackpad two-finger scroll (scrollWheel
+/// events) and reports deltas, without intercepting clicks or drags.
+private struct ScrollWheelPan: NSViewRepresentable {
+    let onScroll: (CGFloat, CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ScrollCatchView {
+        let view = ScrollCatchView()
+        view.onScroll = onScroll
+        return view
+    }
+
+    func updateNSView(_ nsView: ScrollCatchView, context: Context) {
+        nsView.onScroll = onScroll
+    }
+
+    final class ScrollCatchView: NSView {
+        var onScroll: ((CGFloat, CGFloat) -> Void)?
+
+        override var isFlipped: Bool { true }
+
+        override func scrollWheel(with event: NSEvent) {
+            onScroll?(event.scrollingDeltaX, event.scrollingDeltaY)
+        }
+
+        // Only claim scroll-wheel events; let clicks/drags fall through.
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let event = NSApp.currentEvent
+            if event?.type == .scrollWheel { return self }
+            return nil
+        }
+    }
 }
 
 private extension CGPoint {
