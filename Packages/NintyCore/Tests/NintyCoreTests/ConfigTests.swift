@@ -49,6 +49,42 @@ struct NintyConfigTests {
         let decoded = try JSONDecoder().decode(NintyConfig.self, from: data)
         #expect(decoded == config)
     }
+
+    @Test("MCP server config: legacy stdio JSON decodes with url nil")
+    func mcpLegacyDecode() throws {
+        let json = #"{"command": "npx", "args": ["-y", "fs-mcp"], "env": {"A": "1"}}"#.data(using: .utf8)!
+        let config = try JSONDecoder().decode(MCPServerConfig.self, from: json)
+        #expect(config.command == "npx")
+        #expect(config.args == ["-y", "fs-mcp"])
+        #expect(config.env == ["A": "1"])
+        #expect(config.url == nil)
+        #expect(config.headers == nil)
+        #expect(config.displayString == "npx -y fs-mcp")
+    }
+
+    @Test("MCP server config: HTTP JSON decodes with defaults")
+    func mcpHTTPDecode() throws {
+        let json = #"{"url": "https://graph.example.com/mcp", "headers": {"Authorization": "Bearer k"}}"#.data(using: .utf8)!
+        let config = try JSONDecoder().decode(MCPServerConfig.self, from: json)
+        #expect(config.command == nil)
+        #expect(config.args.isEmpty)
+        #expect(config.env.isEmpty)
+        #expect(config.url == "https://graph.example.com/mcp")
+        #expect(config.headers == ["Authorization": "Bearer k"])
+        #expect(config.displayString == "https://graph.example.com/mcp")
+    }
+
+    @Test("MCP server config: Codable roundtrip preserves both transports")
+    func mcpRoundtrip() throws {
+        for config in [
+            MCPServerConfig(command: "npx", args: ["-y", "x"], env: ["K": "V"]),
+            MCPServerConfig(url: "http://localhost:3001/mcp", headers: ["Authorization": "Bearer t"])
+        ] {
+            let data = try JSONEncoder().encode(config)
+            let decoded = try JSONDecoder().decode(MCPServerConfig.self, from: data)
+            #expect(decoded == config)
+        }
+    }
 }
 
 @Suite("ConfigLoader")

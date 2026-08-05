@@ -25,14 +25,46 @@ public struct ProviderConfig: Codable, Sendable, Equatable {
 }
 
 public struct MCPServerConfig: Codable, Sendable, Equatable {
-    public var command: String
+    /// Stdio transport: executable to spawn. Either this or `url` must be set.
+    public var command: String?
     public var args: [String]
     public var env: [String: String]
+    /// HTTP transport: remote server endpoint (streamable HTTP, e.g. "https://host/mcp").
+    public var url: String?
+    /// HTTP transport: extra request headers (e.g. Authorization Bearer).
+    public var headers: [String: String]?
 
-    public init(command: String, args: [String] = [], env: [String: String] = [:]) {
+    public init(
+        command: String? = nil,
+        args: [String] = [],
+        env: [String: String] = [:],
+        url: String? = nil,
+        headers: [String: String]? = nil
+    ) {
         self.command = command
         self.args = args
         self.env = env
+        self.url = url
+        self.headers = headers
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case command, args, env, url, headers
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        command = try container.decodeIfPresent(String.self, forKey: .command)
+        args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
+        env = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        headers = try container.decodeIfPresent([String: String].self, forKey: .headers)
+    }
+
+    /// Human-readable one-liner for lists/settings.
+    public var displayString: String {
+        if let url { return url }
+        return ([command ?? "?"] + args).joined(separator: " ")
     }
 }
 

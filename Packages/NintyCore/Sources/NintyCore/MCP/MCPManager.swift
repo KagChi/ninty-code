@@ -30,7 +30,7 @@ public enum MCPServerStatus: Sendable, Equatable {
     case failed(String)
 }
 
-/// Manages stdio MCP servers from config: spawn, discover tools, bridge into registry.
+/// Manages MCP servers from config — stdio (spawn) and HTTP (remote) — and bridges their tools into the registry.
 public actor MCPManager {
     private var configs: [String: MCPServerConfig]
     private var clients: [String: Client] = [:]
@@ -62,17 +62,40 @@ public actor MCPManager {
         guard let config else { return }
         statuses[name] = .starting
         do {
-            let (client, process) = try Self.spawn(name: name, config: config)
-            _ = try await client.connect(transport: Self.transport(for: process.pipes))
-            clients[name] = client
-            processes[name] = process.process
-            // Watch for crash.
-            let pid = process.process
-            pid.terminationHandler = { [weak self] _ in
-                Task { await self?.serverDied(name) }
+            if let urlString = config.url {
+                // HTTP transport: connect to a remote streamable-HTTP server.
+                guard let url = URL(string: urlString) else {
+                    throw MCPError.launchFailed(name, "invalid url: \(urlString)")
+                }
+                let client = Client(name: "ninty-code", version: "0.1.0")
+                let headers = config.headers ?? [:]
+                let transport = HTTPClientTransport(endpoint: url) { request in
+                    var request = request
+                    for (key, value) in headers {
+                        request.setValue(value, forHTTPHeaderField: key)
+                    }
+                    return request
+                }
+                _ = try await client.connect(transport: transport)
+                clients[name] = client
+                let (tools, _) = try await client.listTools()
+                statuses[name] = .running(toolCount: tools.count)
+            } else if let command = config.command {
+                // Stdio transport: spawn a local server process.
+                let (client, process) = try Self.spawn(name: name, command: command, args: config.args, env: config.env)
+                _ = try await client.connect(transport: Self.transport(for: process.pipes))
+                clients[name] = client
+                processes[name] = process.process
+                // Watch for crash.
+                let pid = process.process
+                pid.terminationHandler = { [weak self] _ in
+                    Task { await self?.serverDied(name) }
+                }
+                let (tools, _) = try await client.listTools()
+                statuses[name] = .running(toolCount: tools.count)
+            } else {
+                throw MCPError.launchFailed(name, "config has neither command nor url")
             }
-            let (tools, _) = try await client.listTools()
-            statuses[name] = .running(toolCount: tools.count)
         } catch {
             statuses[name] = .failed(error.localizedDescription)
         }
@@ -115,6 +138,9 @@ public actor MCPManager {
 
     /// Shut down all servers.
     public func stopAll() async {
+        for (_, client) in clients {
+            await client.disconnect()
+        }
         for (_, process) in processes {
             if process.isRunning { process.terminate() }
         }
@@ -136,12 +162,12 @@ public actor MCPManager {
         )
     }
 
-    private static func spawn(name: String, config: MCPServerConfig) throws -> (Client, SpawnedProcess) {
+    private static func spawn(name: String, command: String, args: [String], env: [String: String]) throws -> (Client, SpawnedProcess) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [config.command] + config.args
+        process.arguments = [command] + args
         var environment = ProcessInfo.processInfo.environment
-        environment.merge(config.env) { _, new in new }
+        environment.merge(env) { _, new in new }
         process.environment = environment
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()

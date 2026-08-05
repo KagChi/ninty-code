@@ -539,7 +539,7 @@ struct MCPPane: View {
 
     private func commandLine(for name: String) -> String {
         guard let config = appState.resolved?.config.mcp[name] else { return "" }
-        return ([config.command] + config.args).joined(separator: " ")
+        return config.displayString
     }
 
     private func statusText(for name: String) -> String {
