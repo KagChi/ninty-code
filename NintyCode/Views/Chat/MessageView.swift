@@ -103,13 +103,13 @@ struct MessageView: View {
         .onHover { hovered = $0 }
     }
 
-    // MARK: - Meta row (hover-revealed): Agent · Model · HH:MM + copy
+    // MARK: - Meta row (hover-revealed): Agent · Model · HH:MM · elapsed · tokens + copy
 
     private func metaRow(alignment: HorizontalAlignment) -> some View {
         HStack(spacing: 6) {
             if alignment == .trailing { Spacer() }
             if hovered || copied {
-                Text("\(agentID) · \(shortModel) · \(message.timestamp.formatted(date: .omitted, time: .shortened))")
+                Text(metaText)
                     .font(Theme.caption)
                     .foregroundStyle(Theme.textFaint)
                 Button {
@@ -135,15 +135,49 @@ struct MessageView: View {
         .animation(.easeInOut(duration: 0.15), value: hovered)
     }
 
+    private var metaText: String {
+        var parts = [agentID, shortModel, message.timestamp.formatted(date: .omitted, time: .shortened)]
+        if let elapsed = message.elapsed { parts.append(TimelineFormat.elapsed(elapsed)) }
+        if let tokens = message.tokenCount { parts.append("\(TimelineFormat.tokens(tokens)) tok") }
+        return parts.joined(separator: " · ")
+    }
+
     private var shortModel: String {
-        ProviderRegistry.split(model)?.model ?? model
+        appState.modelLabel(model)
     }
 }
 
-/// Streaming "Thinking..." shimmer row (opencode TimelineThinkingRow).
+/// Compact formatting shared by the thinking row and completion footer.
+enum TimelineFormat {
+    /// 8s / 2m 50s / 1h 3m
+    static func elapsed(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval.rounded()))
+        if seconds < 60 { return "\(seconds)s" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m \(seconds % 60)s" }
+        return "\(minutes / 60)h \(minutes % 60)m"
+    }
+
+    /// 1.2k / 34k compact token count.
+    static func tokens(_ count: Int) -> String {
+        count.formatted(.number.notation(.compactName))
+    }
+}
+
+/// Streaming "Thinking..." shimmer row (opencode TimelineThinkingRow) with
+/// live elapsed seconds while the turn is running.
 struct ThinkingRow: View {
+    var startedAt: Date?
+
     var body: some View {
-        ShimmerText(text: "Thinking...", font: Theme.sansMedium, color: Theme.textMuted)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            ShimmerText(text: label(at: context.date), font: Theme.sansMedium, color: Theme.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func label(at now: Date) -> String {
+        guard let startedAt else { return "Thinking..." }
+        return "Thinking... \(TimelineFormat.elapsed(now.timeIntervalSince(startedAt)))"
     }
 }

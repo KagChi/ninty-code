@@ -31,6 +31,10 @@ struct DisplayMessage: Identifiable, Equatable {
     var isMarker = false
     /// Attached images (data URLs).
     var images: [String] = []
+    /// Turn elapsed time — stamped on the assistant message when the turn completes.
+    var elapsed: TimeInterval?
+    /// Turn token total (input+output+reasoning+cache) — stamped on completion.
+    var tokenCount: Int?
 
     init(role: Role, text: String = "", blocks: [DisplayBlock]? = nil, isMarker: Bool = false, images: [String] = []) {
         self.role = role
@@ -74,6 +78,9 @@ struct DisplayMessage: Identifiable, Equatable {
 final class ChatStore {
     var messages: [DisplayMessage] = []
     var streaming = false
+    /// Turn start — drives the live elapsed label in ThinkingRow and the
+    /// completion footer stamp. Set when streaming flips on, cleared at done/error.
+    private(set) var turnStartedAt: Date?
     var pendingPermission: PermissionRequest?
     var todos: [TodoItem] = []
     var compacted = false
@@ -268,6 +275,9 @@ final class ChatStore {
                 display.updateToolCallBlock(id: id, output: output, isError: isError)
             }
         }
+        // Turn stats persisted on the final assistant message survive reloads.
+        display.tokenCount = message.usage?.total
+        display.elapsed = message.durationMs.map { Double($0) / 1000 }
         return display
     }
 
@@ -346,13 +356,20 @@ final class ChatStore {
             lastError = message
             streaming = false
             retry = nil
-        case .done(let input, _):
+            turnStartedAt = nil
+        case .done(let input, let output):
             lastInputTokens = input
             streaming = false
             pendingPermission = nil
             retry = nil
+            let startedAt = turnStartedAt
+            turnStartedAt = nil
             Task {
                 lastUsage = await session.lastUsage
+                stampCompletion(
+                    elapsed: startedAt.map { Date().timeIntervalSince($0) },
+                    tokens: lastUsage?.total ?? input + output
+                )
                 try? await store.updateUsage(inputTokens: input, sessionID: sessionID)
             }
             onChange()
@@ -363,6 +380,13 @@ final class ChatStore {
         if messages.last?.role != .assistant {
             messages.append(DisplayMessage(role: .assistant))
         }
+    }
+
+    /// Stamp the last assistant message with turn elapsed + tokens (footer).
+    private func stampCompletion(elapsed: TimeInterval?, tokens: Int) {
+        guard let index = messages.indices.last, messages[index].role == .assistant else { return }
+        messages[index].elapsed = elapsed
+        messages[index].tokenCount = tokens
     }
 
     private func updateToolCall(id: String, name: String, output: String, isError: Bool) {
@@ -402,6 +426,7 @@ final class ChatStore {
         }
         messages.append(DisplayMessage(role: .user, text: trimmed, images: images))
         streaming = true
+        turnStartedAt = Date()
         changedFiles = []
         // First message creates the on-disk meta so the session lists in the sidebar.
         if !metaCreated {
@@ -432,6 +457,7 @@ final class ChatStore {
     func sendFollowupNow(at index: Int) {
         messages.append(DisplayMessage(role: .user, text: followups[index]))
         streaming = true
+        turnStartedAt = Date()
         Task { await session.sendFollowupNow(at: index) }
     }
 

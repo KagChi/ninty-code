@@ -116,7 +116,7 @@ struct ModelDialog: View {
     }
 
     private func shortName(_ reference: String) -> String {
-        ProviderRegistry.split(reference)?.model ?? reference
+        appState.modelLabel(reference)
     }
 }
 

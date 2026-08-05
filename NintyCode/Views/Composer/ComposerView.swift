@@ -482,10 +482,7 @@ struct ComposerView: View {
     }
 
     private var shortModelName: String {
-        guard let (_, model) = ProviderRegistry.split(appState.selectedModel) else {
-            return appState.selectedModel
-        }
-        return model
+        appState.modelLabel(appState.selectedModel)
     }
 
     /// Submit: 28px rounded-md contrast button, arrow-up / stop / shell-undo icon.

@@ -168,6 +168,13 @@ final class AppState {
         return "anthropic/claude-sonnet-4-5"
     }
 
+    /// Display label for a "provider/model" reference: the catalog's
+    /// ModelInfo.name, falling back to the raw model id for unknown entries.
+    func modelLabel(_ reference: String) -> String {
+        guard let (providerID, modelID) = ProviderRegistry.split(reference) else { return reference }
+        return registry?.preset(id: providerID)?.models.first { $0.id == modelID }?.name ?? modelID
+    }
+
     // MARK: - Sessions
 
     func reloadSessions() {

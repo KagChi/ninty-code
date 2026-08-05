@@ -80,14 +80,24 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     ForEach(store.messages) { message in
-                        MessageView(message: message, agentID: store.agent.id, model: store.model)
+                        MessageView(message: message, agentID: store.agent.id, model: store.modelReference)
                             .id(message.id)
                     }
-                    if store.streaming, store.messages.last?.role != .assistant || store.messages.last?.text.isEmpty == true && store.messages.last?.toolCalls.isEmpty == true {
+                    // Thinking indicator: visible whenever the turn is live and the
+                    // timeline tail isn't actively-streaming text — covers waiting
+                    // for first token, tool execution, and post-tool thinking gaps.
+                    let streamingText: Bool = {
+                        // Only assistant text suppresses the indicator — a trailing
+                        // user message means we're waiting for the first token.
+                        guard store.messages.last?.role == .assistant else { return false }
+                        if case .text(let text) = store.messages.last?.blocks.last { return !text.isEmpty }
+                        return false
+                    }()
+                    if store.streaming, !streamingText {
                         if let retry = store.retry {
                             RetryRow(attempt: retry.attempt, delay: retry.delay)
                         } else {
-                            ThinkingRow()
+                            ThinkingRow(startedAt: store.turnStartedAt)
                         }
                     }
                     if !store.streaming, !store.changedFiles.isEmpty {
