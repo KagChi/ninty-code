@@ -47,7 +47,7 @@ Two companion servers (repo `../mcp-servers`, Rust) give the agent a learning lo
 - Config (`~/.config/ninty/ninty.json`, never hardcode defaults — ports clash, remote needs secrets):
   ```json
   "mcp": {
-    "graph": { "url": "http://127.0.0.1:3001/mcp" },
+    "graph": { "url": "https://graph-mcp.kagchi.my.id/mcp", "headers": { "Authorization": "Bearer …" } },
     "ltm": { "url": "https://ltm-mcp.kagchi.my.id/mcp", "headers": { "Authorization": "Bearer …" } }
   }
   ```
