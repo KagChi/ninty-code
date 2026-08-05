@@ -123,7 +123,7 @@ struct AgentSessionTests {
             registry: registry,
             store: store,
             todoStore: todoStore,
-            projectRoot: testProject,
+            projectRoots: [testProject],
             projectInstructions: nil
         )
         let collector = EventCollector(session: session)

@@ -263,7 +263,7 @@ struct SteerQueueTests {
             registry: ToolRegistry.builtIns(todoStore: TodoStore()),
             store: SessionStore(projectRoot: tempRoot),
             todoStore: TodoStore(),
-            projectRoot: tempRoot,
+            projectRoots: [tempRoot],
             projectInstructions: nil
         )
     }

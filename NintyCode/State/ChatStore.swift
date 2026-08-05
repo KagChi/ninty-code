@@ -209,6 +209,8 @@ final class ChatStore {
     private var metaCreated = false
     nonisolated(unsafe) private var eventTask: Task<Void, Never>? // deinit access only
     private let onChange: () -> Void
+    /// Turn-end hook: files the agent mutated (graph sync feed).
+    var onChangedFiles: (([String]) -> Void)?
 
     init(
         sessionID: String,
@@ -380,6 +382,7 @@ final class ChatStore {
             retry = nil
         case .changedFiles(let files):
             changedFiles = files
+            onChangedFiles?(files.map(\.path))
         case .titleGenerated:
             onChange() // sidebar refresh picks up new title
         case .agentChanged(let newAgent):

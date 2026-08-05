@@ -566,7 +566,7 @@ final class AppState {
                     return value
                 }
                 .joined(separator: "\n\n")
-            return ChatStore(
+            let chat = ChatStore(
                 sessionID: sessionID,
                 agent: selectedAgent,
                 provider: provider,
@@ -581,6 +581,17 @@ final class AppState {
                 mcpManager: mcpManager,
                 onChange: { [weak self] in self?.reloadSessions(for: workspace) }
             )
+            chat.onChangedFiles = { [weak self] paths in
+                guard let self, let workspace = self.workspace else { return }
+                Task {
+                    await self.ensureGraphSync().scheduleIncremental(
+                        workspace: workspace.id,
+                        roots: workspace.folders,
+                        changedPaths: paths
+                    )
+                }
+            }
+            return chat
         } catch {
             lastError = error.localizedDescription
             return nil
@@ -589,8 +600,7 @@ final class AppState {
 
     // MARK: - MCP
 
-    private func startMCP() {
-        guard let workspace else { return }
+    private func startMCP() {        guard let workspace else { return }
         let configs = resolved?.config.mcp ?? [:]
         guard !configs.isEmpty else {
             mcpManager = nil
@@ -617,6 +627,41 @@ final class AppState {
                 statuses[name] = await manager.status(for: name)
             }
             self?.mcpStatuses = statuses
+            // Graph sync kicks once MCP tools are bridged (no-op without a
+            // graph server in config).
+            if let self, let workspace = self.workspace {
+                _ = await self.ensureGraphSync().syncFull(workspace: workspace.id, roots: workspace.folders)
+            }
+        }
+    }
+
+    // MARK: - Graph sync
+
+    private var graphSync: GraphSyncService?
+
+    private func ensureGraphSync() -> GraphSyncService {
+        if let graphSync { return graphSync }
+        let service = GraphSyncService(upsert: { [weak self] payload in
+            await self?.callGraphUpsert(payload) ?? false
+        })
+        graphSync = service
+        return service
+    }
+
+    /// Execute the bridged `graph:graph_upsert` MCP tool for a workspace.
+    /// Returns false when no graph server is configured/bridged.
+    private func callGraphUpsert(_ payload: GraphUpsertPayload) async -> Bool {
+        guard let manager = mcpManagers[payload.workspace] else { return false }
+        let tools = await manager.bridgedTools()
+        guard let tool = tools.first(where: { $0.name == "graph:graph_upsert" }) else { return false }
+        do {
+            let data = try JSONEncoder().encode(payload)
+            let args = try JSONDecoder().decode(JSONValue.self, from: data)
+            let roots = workspaces.first { $0.id == payload.workspace }?.folders ?? []
+            let result = try await tool.execute(args, ctx: ToolContext(projectRoots: roots, sessionID: "graph-sync"))
+            return !result.isError
+        } catch {
+            return false
         }
     }
 
