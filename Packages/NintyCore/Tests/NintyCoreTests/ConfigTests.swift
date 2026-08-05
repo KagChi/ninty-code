@@ -105,4 +105,22 @@ struct ConfigLoaderTests {
             }
         }
     }
+
+    @Test("multi-root: instructions concatenated from every root that has AGENTS.md")
+    func multiRootInstructions() throws {
+        try withTempDir { base in
+            let web = base.appendingPathComponent("web")
+            let api = base.appendingPathComponent("api")
+            let docs = base.appendingPathComponent("docs")
+            for dir in [web, api, docs] {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            }
+            try "WEB rules".write(to: web.appendingPathComponent("AGENTS.md"), atomically: true, encoding: .utf8)
+            try "API rules".write(to: api.appendingPathComponent("AGENTS.md"), atomically: true, encoding: .utf8)
+            // docs has no AGENTS.md — skipped.
+            let resolved = try ConfigLoader().load(roots: [web, api, docs])
+            #expect(resolved.projectInstructions == "WEB rules\n\nAPI rules")
+            #expect(resolved.projectRoot == web)
+        }
+    }
 }

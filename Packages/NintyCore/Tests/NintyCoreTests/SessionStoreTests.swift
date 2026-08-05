@@ -105,4 +105,73 @@ struct SessionStoreTests {
         #expect(SessionStore.projectHash(URL(fileURLWithPath: "/tmp/proj")) == a)
         #expect(SessionStore.projectHash(URL(fileURLWithPath: "/tmp/other")) != a)
     }
+
+    @Test("legacy workspace keeps path-hash id — sessions shared with projectRoot store")
+    func legacyWorkspaceCompat() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ninty-sessions-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let project = URL(fileURLWithPath: "/tmp/fake-project")
+        // Old world: write via the path-hash store.
+        let legacyStore = SessionStore(projectRoot: project, baseDirectory: base)
+        _ = try await legacyStore.create(id: "s1", title: "Old", agentID: "build", model: "m")
+        try await legacyStore.append(.user("hello"), sessionID: "s1")
+        // New world: migrated workspace reads the same directory.
+        let workspace = Workspace.legacy(folder: project)
+        #expect(workspace.id == SessionStore.projectHash(project))
+        let workspaceStore = SessionStore(workspace: workspace, baseDirectory: base)
+        let loaded = try #require(await workspaceStore.load(id: "s1"))
+        #expect(loaded.meta.title == "Old")
+        #expect(loaded.messages.count == 1)
+    }
+
+    @Test("WorkspaceStore roundtrip")
+    func workspaceStoreRoundtrip() async throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ninty-workspaces-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = WorkspaceStore(fileURL: file)
+        #expect(await store.load().isEmpty)
+        let workspaces = [
+            Workspace(name: "web", folders: [URL(fileURLWithPath: "/tmp/web")]),
+            Workspace.legacy(folder: URL(fileURLWithPath: "/tmp/api"))
+        ]
+        try await store.save(workspaces)
+        let loaded = await store.load()
+        #expect(loaded.count == 2)
+        #expect(loaded[0].name == "web")
+        #expect(loaded[0].primaryRoot.lastPathComponent == "web")
+        #expect(loaded[1].id == SessionStore.projectHash(URL(fileURLWithPath: "/tmp/api")))
+    }
+
+    @Test("workspace folders: plain paths on disk, legacy file:// form still decodes, systemContext optional")
+    func workspaceCodableCompat() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        // New form: plain path strings + systemContext.
+        let workspace = Workspace(
+            name: "mix", folders: [URL(fileURLWithPath: "/tmp/web"), URL(fileURLWithPath: "/tmp/api")],
+            systemContext: "Always answer in Indonesian."
+        )
+        let data = try encoder.encode([workspace])
+        let raw = try #require(String(data: data, encoding: .utf8))
+        #expect(raw.contains("\"/tmp/web\""))
+        #expect(!raw.contains("file://"))
+        let decoded = try decoder.decode([Workspace].self, from: data)
+        #expect(decoded[0].folders.map(\.path) == ["/tmp/web", "/tmp/api"])
+        #expect(decoded[0].systemContext == "Always answer in Indonesian.")
+
+        // Legacy form: file:/// URLs, no systemContext key.
+        let legacy = """
+        [{"id":"x","name":"old","folders":["file:///tmp/web/"],\
+        "created":"2026-08-05T00:00:00Z"}]
+        """
+        let migrated = try decoder.decode([Workspace].self, from: Data(legacy.utf8))
+        #expect(migrated[0].folders[0].path == "/tmp/web")
+        #expect(migrated[0].systemContext == nil)
+    }
 }

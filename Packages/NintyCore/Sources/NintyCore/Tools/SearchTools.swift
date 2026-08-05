@@ -47,7 +47,7 @@ public struct GlobTool: AgentTool {
 
     public func execute(_ args: JSONValue, ctx: ToolContext) async throws -> ToolResult {
         let pattern = try args.requireString("pattern")
-        let base = ctx.resolve(args.optionalString("path") ?? ".")
+        let base = ctx.resolveExisting(args.optionalString("path") ?? ".")
         let matcher = GlobMatcher(pattern: pattern)
         guard let files = Self.collectFiles(base: base, keys: [.contentModificationDateKey, .isDirectoryKey]) else {
             return .error("Cannot enumerate: \(base.path)")
@@ -133,7 +133,7 @@ public struct GrepTool: AgentTool {
 
     public func execute(_ args: JSONValue, ctx: ToolContext) async throws -> ToolResult {
         let pattern = try args.requireString("pattern")
-        let base = ctx.resolve(args.optionalString("path") ?? ".")
+        let base = ctx.resolveExisting(args.optionalString("path") ?? ".")
         let include = args.optionalString("include").map(GlobMatcher.init(pattern:))
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return .error("Invalid regular expression: \(pattern)")

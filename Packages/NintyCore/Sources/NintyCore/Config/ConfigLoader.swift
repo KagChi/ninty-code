@@ -50,6 +50,14 @@ public struct ConfigLoader: Sendable {
 
     /// Load global + project config, merged. Missing files are fine; malformed JSON throws.
     public func load(projectRoot: URL) throws -> ResolvedConfig {
+        try load(roots: [projectRoot])
+    }
+
+    /// Multi-root variant: config comes from the primary root (walk-up as
+    /// before); AGENTS.md instructions are concatenated from every root that
+    /// has one, in root order.
+    public func load(roots: [URL]) throws -> ResolvedConfig {
+        let projectRoot = roots[0]
         var merged = NintyConfig()
         if let global = try loadFile(at: globalConfigURL) {
             merged = merged.merging(global)
@@ -58,10 +66,13 @@ public struct ConfigLoader: Sendable {
            let project = try loadFile(at: projectURL) {
             merged = merged.merging(project)
         }
-        let instructions = try? String(
-            contentsOf: projectRoot.appendingPathComponent(Self.instructionsFileName),
-            encoding: .utf8
-        )
+        let parts = roots.compactMap { root -> String? in
+            try? String(
+                contentsOf: root.appendingPathComponent(Self.instructionsFileName),
+                encoding: .utf8
+            )
+        }
+        let instructions = parts.isEmpty ? nil : parts.joined(separator: "\n\n")
         return ResolvedConfig(config: merged, projectInstructions: instructions, projectRoot: projectRoot)
     }
 

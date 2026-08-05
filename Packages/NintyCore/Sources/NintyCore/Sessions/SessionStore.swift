@@ -59,17 +59,28 @@ public actor SessionStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(projectRoot: URL, baseDirectory: URL? = nil) {
+    /// Sessions keyed by an arbitrary storage key (workspace id). Migrated
+    /// single-folder projects use the legacy path-hash as their workspace id,
+    /// so init(projectRoot:) and init(storageKey: hash) share the directory.
+    public init(storageKey: String, baseDirectory: URL? = nil) {
         let base = baseDirectory ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".local/share/ninty/project")
-        let hash = Self.projectHash(projectRoot)
-        self.directory = base.appendingPathComponent(hash).appendingPathComponent("sessions")
+        self.directory = base.appendingPathComponent(storageKey).appendingPathComponent("sessions")
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
+    }
+
+    // Actors have no convenience inits — these delegate through a static key.
+    public init(projectRoot: URL, baseDirectory: URL? = nil) {
+        self.init(storageKey: Self.projectHash(projectRoot), baseDirectory: baseDirectory)
+    }
+
+    public init(workspace: Workspace, baseDirectory: URL? = nil) {
+        self.init(storageKey: workspace.id, baseDirectory: baseDirectory)
     }
 
     static func projectHash(_ url: URL) -> String {

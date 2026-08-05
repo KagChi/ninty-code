@@ -19,7 +19,7 @@ public struct ReadTool: AgentTool {
     static let maxLineLength = 2000
 
     public func execute(_ args: JSONValue, ctx: ToolContext) async throws -> ToolResult {
-        let url = ctx.resolve(try args.requireString("path"))
+        let url = ctx.resolveExisting(try args.requireString("path"))
         guard let text = try? String(contentsOf: url, encoding: .utf8) else {
             return .error("Cannot read file: \(url.path)")
         }
@@ -128,7 +128,7 @@ public struct ListTool: AgentTool {
     static let maxEntries = 200
 
     public func execute(_ args: JSONValue, ctx: ToolContext) async throws -> ToolResult {
-        let url = ctx.resolve(args.optionalString("path") ?? ".")
+        let url = ctx.resolveExisting(args.optionalString("path") ?? ".")
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: url, includingPropertiesForKeys: [.isDirectoryKey]
         ) else {

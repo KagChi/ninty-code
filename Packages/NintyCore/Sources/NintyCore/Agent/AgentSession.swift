@@ -10,6 +10,9 @@ public enum SessionEvent: Sendable {
     case todosChanged([TodoItem])
     case compacted
     case queueChanged([String])
+    /// A queued follow-up became the active turn (timing reset for the UI;
+    /// the user bubble was already shown when the message was queued).
+    case followupStarted(String)
     case titleGenerated(String)
     case agentChanged(Agent)
     case modelChanged(String)
@@ -47,7 +50,7 @@ public actor AgentSession {
     private let store: SessionStore
     private let todoStore: TodoStore
     private let snapshots = SnapshotStore()
-    private let projectRoot: URL
+    private var projectRoots: [URL]
     private let projectInstructions: String?
     private var systemPrompt: String
 
@@ -76,7 +79,7 @@ public actor AgentSession {
         registry: ToolRegistry,
         store: SessionStore,
         todoStore: TodoStore,
-        projectRoot: URL,
+        projectRoots: [URL],
         projectInstructions: String?
     ) {
         self.id = id
@@ -88,7 +91,7 @@ public actor AgentSession {
         self.registry = registry
         self.store = store
         self.todoStore = todoStore
-        self.projectRoot = projectRoot
+        self.projectRoots = projectRoots
         self.projectInstructions = projectInstructions
         self.permissionEngine = PermissionEngine()
 
@@ -98,15 +101,35 @@ public actor AgentSession {
         self.events = AsyncStream { continuation = $0 }
         self.continuation = continuation
         self.systemPrompt = Self.buildSystemPrompt(
-            agent: agent, projectRoot: projectRoot, projectInstructions: projectInstructions
+            agent: agent, projectRoots: projectRoots, projectInstructions: projectInstructions
         )
     }
 
-    private static func buildSystemPrompt(agent: Agent, projectRoot: URL, projectInstructions: String?) -> String {
+    private static func buildSystemPrompt(agent: Agent, projectRoots: [URL], projectInstructions: String?) -> String {
         var prompt = agent.systemPrompt + """
 
         Environment:
-        - Project root: \(projectRoot.path)
+        - Project root (primary): \(projectRoots[0].path)
+        """
+        if projectRoots.count > 1 {
+            prompt += "\n- Workspace roots (multi-root):"
+            for (index, root) in projectRoots.enumerated() {
+                prompt += index == 0
+                    ? "\n  - \(root.path) (primary — plain relative paths resolve here)"
+                    : "\n  - \(root.path) (address as \"\(root.lastPathComponent)/<path>\")"
+            }
+            prompt += """
+
+
+            Multi-root workspace: to address a non-primary root, prefix paths with that \
+            root's folder name (e.g. "\(projectRoots[1].lastPathComponent)/<path>"). \
+            Read tools also fall back to other roots when a plain relative path is \
+            missing from the primary root; writes always go to the primary root \
+            unless prefixed.
+            """
+        }
+        prompt += """
+
         - OS: macOS (Apple Silicon)
         - Date: \(ISO8601DateFormatter().string(from: Date()).prefix(10))
         """
@@ -162,9 +185,19 @@ public actor AgentSession {
     public func setAgent(_ newAgent: Agent) {
         agent = newAgent
         systemPrompt = Self.buildSystemPrompt(
-            agent: newAgent, projectRoot: projectRoot, projectInstructions: projectInstructions
+            agent: newAgent, projectRoots: projectRoots, projectInstructions: projectInstructions
         )
         continuation.yield(.agentChanged(newAgent))
+    }
+
+    /// Workspace folders changed (edit-workspace flow): live chats adopt the
+    /// new root set and rebuild the system prompt's multi-root section.
+    public func setProjectRoots(_ roots: [URL]) {
+        guard !roots.isEmpty, roots != projectRoots else { return }
+        projectRoots = roots
+        systemPrompt = Self.buildSystemPrompt(
+            agent: agent, projectRoots: roots, projectInstructions: projectInstructions
+        )
     }
 
     public func setModel(_ newModel: String) {
@@ -374,6 +407,7 @@ public actor AgentSession {
         guard !busy, !followups.isEmpty else { return }
         let next = followups.removeFirst()
         continuation.yield(.queueChanged(followups))
+        continuation.yield(.followupStarted(next))
         startTurn(next)
     }
 
@@ -408,7 +442,7 @@ public actor AgentSession {
     private func changedFilesWithDiffs() async -> [ChangedFile] {
         var result: [ChangedFile] = []
         for path in turnChangedFiles.sorted() {
-            let resolved = ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path
+            let resolved = ToolContext(projectRoots: projectRoots, sessionID: id).resolve(path).path
             let oldText: String?
             if let original = await snapshots.originalContent(path: resolved) {
                 oldText = original.flatMap { String(data: $0, encoding: .utf8) }
@@ -430,7 +464,7 @@ public actor AgentSession {
         // Snapshot + changed-file tracking before any edit/write mutation.
         if tool.name == "edit" || tool.name == "write",
            let path = arguments["path"]?.stringValue {
-            let resolved = ToolContext(projectRoot: projectRoot, sessionID: id).resolve(path).path
+            let resolved = ToolContext(projectRoots: projectRoots, sessionID: id).resolve(path).path
             await snapshots.recordOriginal(path: resolved)
             turnChangedFiles.insert(path)
         }
@@ -438,7 +472,7 @@ public actor AgentSession {
         let effectiveAction = agent.permissions.action(for: tool.name, arguments: arguments, isPlan: agent.id == "plan")
         if effectiveAction == .allow {
             do {
-                return try await tool.execute(arguments, ctx: ToolContext(projectRoot: projectRoot, sessionID: id))
+                return try await tool.execute(arguments, ctx: ToolContext(projectRoots: projectRoots, sessionID: id))
             } catch {
                 return .error("Tool error: \(error.localizedDescription)")
             }
@@ -453,7 +487,7 @@ public actor AgentSession {
             return .error("Permission denied: \(tool.name)")
         }
         do {
-            return try await tool.execute(arguments, ctx: ToolContext(projectRoot: projectRoot, sessionID: id))
+            return try await tool.execute(arguments, ctx: ToolContext(projectRoots: projectRoots, sessionID: id))
         } catch {
             return .error("Tool error: \(error.localizedDescription)")
         }

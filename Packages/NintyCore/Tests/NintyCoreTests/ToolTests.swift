@@ -183,3 +183,82 @@ struct BashToolTests {
         #expect(result.output.contains(dir.lastPathComponent))
     }
 }
+
+@Suite("ToolContext multi-root")
+struct MultiRootContextTests {
+    private func withRoots(_ body: (URL, URL, ToolContext) throws -> Void) throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ninty-multiroot-\(UUID().uuidString)")
+        let web = base.appendingPathComponent("web")
+        let api = base.appendingPathComponent("api")
+        try FileManager.default.createDirectory(at: web, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: api, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        try body(web, api, ToolContext(projectRoots: [web, api], sessionID: "t"))
+    }
+
+    @Test("folder-name prefix addresses the non-primary root")
+    func prefixedResolve() throws {
+        try withRoots { web, api, ctx in
+            #expect(ctx.resolve("api/app/main.py").path == api.appendingPathComponent("app/main.py").path)
+            // Plain relative stays primary-relative; absolute passes through.
+            #expect(ctx.resolve("src/main.ts").path == web.appendingPathComponent("src/main.ts").path)
+            #expect(ctx.resolve("/tmp/x.txt").path == "/tmp/x.txt")
+        }
+    }
+
+    @Test("sandbox covers every root")
+    func sandboxAllRoots() throws {
+        try withRoots { web, api, ctx in
+            #expect(ctx.isInsideProject(web.appendingPathComponent("a.ts")))
+            #expect(ctx.isInsideProject(api.appendingPathComponent("b.py")))
+            #expect(!ctx.isInsideProject(URL(fileURLWithPath: "/etc/hosts")))
+        }
+    }
+
+    @Test("mentionPath: prefixed only when multi-root, absolute outside")
+    func mentionPaths() throws {
+        try withRoots { web, api, ctx in
+            let file = api.appendingPathComponent("app/main.py")
+            #expect(ctx.mentionPath(for: file) == "api/app/main.py")
+            #expect(ctx.mentionPath(for: URL(fileURLWithPath: "/etc/hosts")) == "/etc/hosts")
+            let single = ToolContext(projectRoots: [web], sessionID: "t")
+            #expect(single.mentionPath(for: web.appendingPathComponent("src/a.ts")) == "src/a.ts")
+        }
+    }
+
+    @Test("primary root stays first")
+    func primaryFirst() throws {
+        try withRoots { web, _, ctx in
+            #expect(ctx.projectRoot == web)
+        }
+    }
+
+    @Test("bare root folder name resolves to that root")
+    func bareRootName() throws {
+        try withRoots { web, api, ctx in
+            #expect(ctx.resolve("api") == api.standardizedFileURL)
+            #expect(ctx.resolveExisting("api") == api.standardizedFileURL)
+            // Unknown bare names still fall to primary.
+            #expect(ctx.resolve("other").path == web.appendingPathComponent("other").path)
+        }
+    }
+
+    @Test("resolveExisting: primary hit wins, then other roots in order, miss → primary path")
+    func existingFallback() throws {
+        try withRoots { web, api, ctx in
+            // Only in second root → found there.
+            let apiFile = api.appendingPathComponent("pyproject.toml")
+            try "[project]".write(to: apiFile, atomically: true, encoding: .utf8)
+            #expect(ctx.resolveExisting("pyproject.toml") == apiFile.standardizedFileURL)
+            // In both → primary wins.
+            try "web".write(to: web.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+            try "api".write(to: api.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+            #expect(ctx.resolveExisting("README.md") == web.appendingPathComponent("README.md").standardizedFileURL)
+            // Missing everywhere → primary path (familiar error text).
+            #expect(ctx.resolveExisting("nope.txt").path == web.appendingPathComponent("nope.txt").path)
+            // Prefix always honored, even for missing files.
+            #expect(ctx.resolveExisting("api/new.py").path == api.appendingPathComponent("new.py").path)
+        }
+    }
+}
