@@ -78,6 +78,27 @@ struct SessionStoreTests {
         }
     }
 
+    @Test("turn usage + duration persist on assistant message; old messages decode as nil")
+    func turnStatsRoundtrip() async throws {
+        try await withStore { store, _ in
+            _ = try await store.create(id: "s1", title: "T", agentID: "build", model: "m")
+            try await store.append(.user("hi"), sessionID: "s1")
+            let usage = TokenUsage(input: 1200, output: 340, reasoning: 50, cacheRead: 600, cacheWrite: 0)
+            try await store.append(
+                Message(role: .assistant, parts: [.text("done")], usage: usage, durationMs: 83_000),
+                sessionID: "s1"
+            )
+            let loaded = try #require(await store.load(id: "s1"))
+            let assistant = loaded.messages[1]
+            #expect(assistant.usage == usage)
+            #expect(assistant.usage?.total == 2190)
+            #expect(assistant.durationMs == 83_000)
+            // User message written without stats decodes as nil (backward compat).
+            #expect(loaded.messages[0].usage == nil)
+            #expect(loaded.messages[0].durationMs == nil)
+        }
+    }
+
     @Test("project hash stable + path-distinct")
     func hashing() {
         let a = SessionStore.projectHash(URL(fileURLWithPath: "/tmp/proj"))

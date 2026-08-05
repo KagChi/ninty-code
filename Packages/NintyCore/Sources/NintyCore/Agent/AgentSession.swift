@@ -234,6 +234,8 @@ public actor AgentSession {
     // MARK: - Turn loop
 
     private func runTurn(_ text: String, images: [String] = [], epoch: Int) async {
+        let turnStarted = Date()
+        var turnUsage: TokenUsage?
         let isFirstUserMessage = !history.contains { $0.role == .user }
         let userMessage = images.isEmpty ? Message.user(text) : Message.user(text, images: images)
         history.append(userMessage)
@@ -302,6 +304,11 @@ public actor AgentSession {
                 return
             }
 
+            // Final iteration = no tool calls follow; its assistant message carries
+            // the whole turn's usage + duration (timeline footer after reload).
+            let isFinal = finishReason != .toolCalls || completedCalls.isEmpty
+            if let usage { turnUsage = (turnUsage ?? TokenUsage()).adding(usage) }
+
             // Persist assistant message.
             var parts: [Message.Part] = []
             if !assistantText.isEmpty { parts.append(.text(assistantText)) }
@@ -311,7 +318,12 @@ public actor AgentSession {
                 parts.append(.toolCall(id: callID, name: call.name, arguments: arguments))
             }
             if !parts.isEmpty {
-                let assistantMessage = Message(role: .assistant, parts: parts)
+                let assistantMessage = Message(
+                    role: .assistant,
+                    parts: parts,
+                    usage: isFinal ? turnUsage : nil,
+                    durationMs: isFinal ? Int(Date().timeIntervalSince(turnStarted) * 1000) : nil
+                )
                 history.append(assistantMessage)
                 try? await store.append(assistantMessage, sessionID: id)
             }

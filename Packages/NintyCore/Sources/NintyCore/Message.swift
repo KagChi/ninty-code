@@ -7,6 +7,11 @@ public enum Role: String, Codable, Sendable {
 public struct Message: Codable, Sendable, Equatable {
     public var role: Role
     public var parts: [Part]
+    /// Turn token usage — stamped on the turn's final assistant message.
+    /// Optional: older session files simply lack the key.
+    public var usage: TokenUsage?
+    /// Turn wall-clock duration — stamped alongside usage.
+    public var durationMs: Int?
 
     public enum Part: Codable, Sendable, Equatable {
         case text(String)
@@ -67,9 +72,11 @@ public struct Message: Codable, Sendable, Equatable {
         }
     }
 
-    public init(role: Role, parts: [Part]) {
+    public init(role: Role, parts: [Part], usage: TokenUsage? = nil, durationMs: Int? = nil) {
         self.role = role
         self.parts = parts
+        self.usage = usage
+        self.durationMs = durationMs
     }
 
     public static func user(_ text: String) -> Message {

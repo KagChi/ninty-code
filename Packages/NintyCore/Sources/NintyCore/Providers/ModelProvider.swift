@@ -81,7 +81,7 @@ extension ProviderError: LocalizedError {
 }
 
 /// Token accounting for one assistant turn (opencode msg.tokens shape).
-public struct TokenUsage: Sendable, Equatable {
+public struct TokenUsage: Codable, Sendable, Equatable {
     public var input: Int
     public var output: Int
     public var reasoning: Int
@@ -97,6 +97,17 @@ public struct TokenUsage: Sendable, Equatable {
     }
 
     public var total: Int { input + output + reasoning + cacheRead + cacheWrite }
+
+    /// Component-wise sum — accumulates usage across tool-loop iterations.
+    public func adding(_ other: TokenUsage) -> TokenUsage {
+        TokenUsage(
+            input: input + other.input,
+            output: output + other.output,
+            reasoning: reasoning + other.reasoning,
+            cacheRead: cacheRead + other.cacheRead,
+            cacheWrite: cacheWrite + other.cacheWrite
+        )
+    }
 }
 
 public protocol ModelProvider: Sendable {
