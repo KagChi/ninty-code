@@ -5,7 +5,6 @@ import NintyCore
 /// recent-5 section, arrows+Enter, Esc closes.
 struct ModelDialog: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var selection: String?
 
@@ -69,7 +68,7 @@ struct ModelDialog: View {
                     .foregroundStyle(Theme.textFaint)
                 Spacer()
                 Button("Manage providers…") {
-                    dismiss()
+                    appState.showModelDialog = false
                     appState.settingsSection = .providers
                     appState.showSettings = true
                 }
@@ -80,7 +79,7 @@ struct ModelDialog: View {
         }
         .frame(width: 440, height: 420)
         .background(Theme.bgBase)
-        .onExitCommand { dismiss() }
+        .onExitCommand { appState.showModelDialog = false }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -94,7 +93,7 @@ struct ModelDialog: View {
     private func modelRow(reference: String, label: String, group: String) -> some View {
         Button {
             appState.selectModel(reference)
-            dismiss()
+            appState.showModelDialog = false
         } label: {
             HStack {
                 Text(label)
@@ -124,7 +123,6 @@ struct ModelDialog: View {
 /// opencode command palette (⌘K): session commands with fuzzy filter.
 struct CommandPalette: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
 
     private struct Item: Identifiable {
@@ -189,12 +187,12 @@ struct CommandPalette: View {
         }
         .frame(width: 400, height: 320)
         .background(Theme.bgBase)
-        .onExitCommand { dismiss() }
+        .onExitCommand { appState.showCommandPalette = false }
     }
 
     private func run(_ item: Item?) {
         guard let item else { return }
-        dismiss()
+        appState.showCommandPalette = false
         item.action(appState)
     }
 }

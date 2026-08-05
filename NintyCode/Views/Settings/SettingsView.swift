@@ -26,7 +26,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 /// same chrome family as ModelDialog. No native Settings window.
 struct SettingsDialog: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         HStack(spacing: 0) {
@@ -36,7 +35,7 @@ struct SettingsDialog: View {
         }
         .frame(width: 720, height: 480)
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.radiusLarge))
-        .onExitCommand { dismiss() }
+        .onExitCommand { appState.showSettings = false }
     }
 
     // MARK: - Sidebar
