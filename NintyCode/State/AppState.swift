@@ -41,6 +41,8 @@ final class AppState {
     // Dialogs
     var showModelDialog = false
     var showCommandPalette = false
+    /// Attached image shown in the click-to-preview overlay (data URL).
+    var previewAttachment: String?
     /// Right side panel (review/files) — ⇧⌘R, opencode v2 titlebar toggle.
     var showSidePanel = false
     /// Draggable side panel width (persisted).
@@ -208,6 +210,33 @@ final class AppState {
             try? await store.delete(id: id)
             self?.reloadSessions()
         }
+    }
+
+    /// Delete a project entirely (sidebar context menu, confirmed): close
+    /// its tabs, stop its MCP manager, forget recents/last-project, wipe
+    /// its sessions from disk. Active project → fall back to the next
+    /// recent, or the no-project state when none remain.
+    func removeProject(_ url: URL) {
+        for chat in openTabs.filter({ $0.projectRoot == url }) {
+            closeTab(chat)
+        }
+        if let manager = mcpManagers.removeValue(forKey: url) {
+            Task { await manager.stopAll() }
+        }
+        recentProjects.removeAll { $0 == url }
+        UserDefaults.standard.set(recentProjects.map(\.path), forKey: "recentProjects")
+        sessionsByProject[url] = nil
+        expandedProjects.remove(url)
+        if projectRoot == url {
+            if let next = recentProjects.first {
+                openProject(next)
+            } else {
+                projectRoot = nil
+                UserDefaults.standard.removeObject(forKey: "lastProject")
+                sessions = []
+            }
+        }
+        Task { try? await SessionStore(projectRoot: url).deleteAll() }
     }
 
     func newChat() {

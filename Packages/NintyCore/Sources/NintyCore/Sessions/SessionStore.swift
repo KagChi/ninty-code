@@ -190,6 +190,14 @@ public actor SessionStore {
         saveIndex()
     }
 
+    /// Wipe every session of this project (delete-project flow): removes
+    /// the whole per-project directory (<base>/<hash>/), index included.
+    public func deleteAll() throws {
+        let projectDirectory = directory.deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: projectDirectory.path) else { return }
+        try FileManager.default.removeItem(at: projectDirectory)
+    }
+
     /// Fork: copy meta + first `keepCount` messages into a new session id (opencode /fork).
     @discardableResult
     public func fork(id sourceID: String, keepingMessages keepCount: Int, newID: String) throws -> SessionMeta? {

@@ -137,6 +137,7 @@ private struct SidebarProjectHeader: View {
     let project: URL
     let isActive: Bool
     @State private var hovered = false
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -175,6 +176,22 @@ private struct SidebarProjectHeader: View {
             }
         }
         .onHover { hovered = $0 }
+        .contextMenu {
+            Button("Delete Project…", role: .destructive) { showDeleteConfirm = true }
+        }
+        .confirmationDialog(
+            "Delete \(project.lastPathComponent)?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Project", role: .destructive) {
+                appState.removeProject(project)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let count = appState.sessionsByProject[project]?.count ?? 0
+            Text("Removes the project from the sidebar and permanently deletes \(count == 0 ? "all its sessions" : "\(count) session\(count == 1 ? "" : "s")") from disk.")
+        }
     }
 }
 
