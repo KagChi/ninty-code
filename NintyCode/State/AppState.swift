@@ -142,15 +142,18 @@ final class AppState {
 
     /// Cache project files for @ mention filtering. Detached + bounded walk — must never
     /// run on MainActor (sync enumeration of a large tree freezes the UI).
+    /// Directories included (trailing "/") — opencode lets you mention folders.
     private func loadProjectFiles() {
         guard let projectRoot else { return }
         projectFiles = []
         Task.detached(priority: .utility) { [weak self] in
-            let urls = GlobTool.collectFiles(base: projectRoot, keys: [.isDirectoryKey], limit: 2_000) ?? []
+            let urls = GlobTool.collectFiles(base: projectRoot, keys: [.isDirectoryKey], limit: 2_000, includeDirectories: true) ?? []
             let basePath = projectRoot.resolvingSymlinksInPath().path
             let files = urls.map { url -> String in
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 let path = url.resolvingSymlinksInPath().path
-                return path.hasPrefix(basePath + "/") ? String(path.dropFirst(basePath.count + 1)) : path
+                let relative = path.hasPrefix(basePath + "/") ? String(path.dropFirst(basePath.count + 1)) : path
+                return isDir ? relative + "/" : relative
             }
             let state = self
             await MainActor.run { state?.projectFiles = files }

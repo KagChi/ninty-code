@@ -19,7 +19,10 @@ public struct GlobTool: AgentTool {
 
     /// Synchronous directory walk (enumerator iteration is unavailable in async contexts).
     /// Stops after `limit` files to bound time/memory on large trees.
-    public static func collectFiles(base: URL, keys: [URLResourceKey], limit: Int = 10_000) -> [URL]? {
+    /// `includeDirectories` adds directories to the result (used by the
+    /// @-mention corpus — opencode lets you mention folders); skipped
+    /// directories are never included, nor are their contents.
+    public static func collectFiles(base: URL, keys: [URLResourceKey], limit: Int = 10_000, includeDirectories: Bool = false) -> [URL]? {
         guard let enumerator = FileManager.default.enumerator(
             at: base, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
         ) else { return nil }
@@ -28,7 +31,12 @@ public struct GlobTool: AgentTool {
         for case let url as URL in enumerator {
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isDir {
-                if skippedDirectories.contains(url.lastPathComponent) { enumerator.skipDescendants() }
+                if skippedDirectories.contains(url.lastPathComponent) {
+                    enumerator.skipDescendants()
+                } else if includeDirectories {
+                    files.append(url)
+                }
+                if files.count >= limit { break }
                 continue
             }
             files.append(url)

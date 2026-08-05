@@ -525,17 +525,57 @@ struct ComposerView: View {
 
     private func updateMentions() {
         guard let lastToken = text.components(separatedBy: .whitespacesAndNewlines).last,
-              lastToken.hasPrefix("@"), lastToken.count > 1 else {
+              lastToken.hasPrefix("@") else {
             mentionQuery = nil
             mentionResults = []
             return
         }
         let query = String(lastToken.dropFirst())
         mentionQuery = query
-        mentionResults = appState.projectFiles
-            .filter { $0.localizedCaseInsensitiveContains(query) }
-            .prefix(8)
-            .map { $0 }
+        mentionResults = Self.fuzzyMentions(query, in: appState.projectFiles)
+    }
+
+    /// opencode-style fuzzy file matching: subsequence with bonuses for
+    /// segment starts and consecutive runs; directories (trailing "/")
+    /// included. Bare "@" → first corpus entries.
+    static func fuzzyMentions(_ query: String, in corpus: [String], limit: Int = 10) -> [String] {
+        guard !query.isEmpty else { return Array(corpus.prefix(limit)) }
+        let lowered = query.lowercased()
+        var scored: [(path: String, score: Int)] = []
+        scored.reserveCapacity(64)
+        for entry in corpus {
+            let path = entry.hasSuffix("/") ? String(entry.dropLast()) : entry
+            guard let score = fuzzyScore(query: lowered, path: path.lowercased()) else { continue }
+            scored.append((entry, score))
+        }
+        return scored
+            .sorted { $0.score == $1.score ? $0.path.count < $1.path.count : $0.score > $1.score }
+            .prefix(limit)
+            .map(\.path)
+    }
+
+    /// Subsequence score: +1 per matched char, +10 at a path-segment start,
+    /// +5 for consecutive matches. nil = query is not a subsequence.
+    static func fuzzyScore(query: String, path: String) -> Int? {
+        var score = 0
+        var queryIndex = query.startIndex
+        var previousMatched = false
+        var position = 0
+        for char in path {
+            defer { position += 1 }
+            guard queryIndex < query.endIndex, char == query[queryIndex] else {
+                previousMatched = false
+                continue
+            }
+            let segmentStart = position == 0
+                || path[path.index(path.startIndex, offsetBy: position - 1)] == "/"
+            score += 1
+            if segmentStart { score += 10 }
+            if previousMatched { score += 5 }
+            queryIndex = query.index(after: queryIndex)
+            previousMatched = true
+        }
+        return queryIndex == query.endIndex ? score : nil
     }
 
     private var mentionPopup: some View {
@@ -544,13 +584,18 @@ struct ComposerView: View {
                 Button {
                     insertMention(path)
                 } label: {
-                    Text(path)
-                        .font(Theme.small)
-                        .foregroundStyle(Theme.textBase)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
+                    HStack(spacing: 8) {
+                        FileTypeIcon(path: path)
+                        Text(path)
+                            .font(Theme.small)
+                            .foregroundStyle(Theme.textBase)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .backgroundHover
@@ -663,6 +708,139 @@ enum AttachmentImage {
               let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { return nil }
         return NSImage(data: data)
     }
+}
+
+/// File-type icon for the @-mention popup and side panel file rows.
+/// SF Symbols only cover a handful of languages, so: known types get
+/// symbols (swift logo, terminal, photo…), everything else gets a colored
+/// extension badge (JS yellow, TS blue, PY green…) — covers every
+/// language without bundling assets. Resolution: directory → special
+/// basename (Dockerfile, Makefile…) → symbol ext → badge ext → doc.
+struct FileTypeIcon: View {
+    let path: String
+
+    var body: some View {
+        Group {
+            if let (symbol, color) = resolvedSymbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 11))
+                    .foregroundStyle(color)
+            } else {
+                let badge = resolvedBadge
+                Text(badge.label)
+                    .font(.system(size: badge.label.count > 3 ? 5.5 : 7, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(badge.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+            }
+        }
+        .frame(width: 16)
+    }
+
+    private var ext: String { (path as NSString).pathExtension.lowercased() }
+    private var base: String { (path as NSString).lastPathComponent.lowercased() }
+
+    private var resolvedSymbol: (String, Color)? {
+        if path.hasSuffix("/") { return ("folder.fill", .blue) }
+        if let entry = Self.symbolBasenames[base] { return entry }
+        if Self.badgeBasenames[base] != nil { return nil }
+        return Self.symbols[ext]
+    }
+
+    private var resolvedBadge: (label: String, color: Color) {
+        if let entry = Self.badgeBasenames[base] { return entry }
+        if let color = Self.badgeColors[ext] { return (ext.uppercased(), color) }
+        return ("", .gray) // unreachable in practice: resolvedSymbol covers it
+    }
+
+    /// Extensions rendered as SF Symbols.
+    static let symbols: [String: (String, Color)] = [
+        "swift": ("swift", .orange),
+        "md": ("doc.richtext", .blue), "markdown": ("doc.richtext", .blue),
+        "txt": ("doc.text", .gray), "log": ("doc.text", .gray), "rst": ("doc.text", .gray),
+        "json": ("curlybraces", .yellow), "jsonc": ("curlybraces", .yellow), "json5": ("curlybraces", .yellow),
+        "yml": ("doc.text", .red), "yaml": ("doc.text", .red),
+        "xml": ("doc.text", .orange), "plist": ("doc.text", .gray), "toml": ("doc.text", .orange),
+        "ini": ("gear", .gray), "cfg": ("gear", .gray), "conf": ("gear", .gray), "env": ("gear", .yellow),
+        "csv": ("tablecells", .green), "tsv": ("tablecells", .green),
+        "sql": ("cylinder", .blue), "db": ("cylinder", .blue), "sqlite": ("cylinder", .blue),
+        "sh": ("terminal", .green), "bash": ("terminal", .green), "zsh": ("terminal", .green),
+        "fish": ("terminal", .green), "ps1": ("terminal", .blue),
+        "png": ("photo", .purple), "jpg": ("photo", .purple), "jpeg": ("photo", .purple),
+        "gif": ("photo", .purple), "webp": ("photo", .purple), "heic": ("photo", .purple),
+        "svg": ("photo", .purple), "ico": ("photo", .purple),
+        "mp3": ("waveform", .pink), "wav": ("waveform", .pink), "m4a": ("waveform", .pink), "flac": ("waveform", .pink),
+        "mp4": ("film", .indigo), "mov": ("film", .indigo), "mkv": ("film", .indigo), "webm": ("film", .indigo),
+        "zip": ("doc.zipper", .gray), "tar": ("doc.zipper", .gray), "gz": ("doc.zipper", .gray),
+        "xz": ("doc.zipper", .gray), "7z": ("doc.zipper", .gray), "rar": ("doc.zipper", .gray),
+        "pdf": ("doc", .red),
+        "ttf": ("textformat", .gray), "otf": ("textformat", .gray),
+        "woff": ("textformat", .gray), "woff2": ("textformat", .gray),
+        "lock": ("lock", .gray),
+        "pem": ("key", .yellow), "key": ("key", .yellow), "cer": ("key", .yellow), "crt": ("key", .yellow),
+        "html": ("globe", .orange), "htm": ("globe", .orange),
+        "css": ("paintpalette", .blue), "scss": ("paintpalette", .pink),
+        "sass": ("paintpalette", .pink), "less": ("paintpalette", .indigo),
+        "ipynb": ("doc.text", .orange)
+    ]
+
+    /// Extensions rendered as colored text badges (label = uppercased ext).
+    static let badgeColors: [String: Color] = [
+        "js": .yellow, "jsx": .yellow, "mjs": .yellow, "cjs": .yellow,
+        "ts": .blue, "tsx": .blue, "mts": .blue, "cts": .blue,
+        "py": .green, "pyi": .green, "pyw": .green,
+        "rb": .red, "erb": .red,
+        "go": .cyan,
+        "rs": .orange,
+        "java": .red, "kt": .purple, "kts": .purple, "scala": .red, "groovy": .teal,
+        "c": .indigo, "h": .indigo, "cpp": .indigo, "cc": .indigo, "cxx": .indigo, "hpp": .indigo,
+        "m": .indigo, "mm": .indigo,
+        "cs": .green, "fs": .teal,
+        "php": .indigo,
+        "lua": .blue, "r": .blue, "jl": .purple,
+        "hs": .purple, "lhs": .purple, "ml": .orange, "mli": .orange,
+        "ex": .purple, "exs": .purple, "erl": .red, "hrl": .red,
+        "clj": .green, "cljs": .green, "edn": .green,
+        "vue": .green, "svelte": .orange, "astro": .orange,
+        "dart": .cyan, "zig": .orange, "nim": .yellow, "cr": .gray,
+        "wasm": .purple,
+        "proto": .teal, "graphql": .pink, "gql": .pink,
+        "tf": .purple, "hcl": .purple,
+        "vim": .green, "el": .purple,
+        "pl": .cyan, "pm": .cyan,
+        "lisp": .purple, "scm": .purple,
+        "d": .red, "ada": .blue, "adb": .blue, "ads": .blue,
+        "cob": .gray, "cobol": .gray,
+        "f": .purple, "f90": .purple, "f95": .purple, "f03": .purple, "f08": .purple,
+        "v": .blue, "sv": .teal, "vhd": .teal, "vhdl": .teal,
+        "sol": .gray, "move": .purple,
+        "asm": .gray, "s": .gray,
+        "pas": .gray, "pp": .gray,
+        "tcl": .orange,
+        "cmake": .teal,
+        "gradle": .teal,
+        "diff": .pink, "patch": .pink
+    ]
+
+    /// Special basenames rendered as SF Symbols (no useful extension).
+    static let symbolBasenames: [String: (String, Color)] = [
+        "dockerfile": ("shippingbox", .blue),
+        "makefile": ("hammer", .gray),
+        "license": ("doc.text", .gray),
+        ".gitignore": ("eye.slash", .gray),
+        ".gitattributes": ("eye.slash", .gray),
+        ".dockerignore": ("eye.slash", .gray)
+    ]
+
+    /// Special basenames rendered as badges with explicit short labels.
+    static let badgeBasenames: [String: (label: String, color: Color)] = [
+        "podfile": ("RB", .red),
+        "gemfile": ("RB", .red),
+        "rakefile": ("RB", .red),
+        "brewfile": ("RB", .red),
+        "vagrantfile": ("VF", .purple),
+        "justfile": ("JF", .gray)
+    ]
 }
 
 extension Data {

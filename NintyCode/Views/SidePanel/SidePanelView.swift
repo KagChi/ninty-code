@@ -173,6 +173,7 @@ struct SidePanelView: View {
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(statusColor(change.status))
                 .frame(width: 12)
+            FileTypeIcon(path: change.path)
             Text(change.path)
                 .font(Theme.caption)
                 .foregroundStyle(selected ? Theme.textBase : Theme.textMuted)
