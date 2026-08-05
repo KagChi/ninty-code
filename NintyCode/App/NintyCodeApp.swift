@@ -98,6 +98,15 @@ struct ContentView: View {
             .padding(8)
             .background(Theme.bgDeep)
             .background(WindowStyler())
+            // AppKit window-level drop capture: drags anywhere over the
+            // window route into the active chat (images → attachments,
+            // other files → @mentions). SwiftUI onDrop never fired here.
+            .background(WindowDropCapture(
+                onTargeted: { appState.activeChat?.dropTargeted = $0 },
+                onURLs: { appState.activeChat?.ingestDroppedURLs($0) },
+                onImages: { appState.activeChat?.ingestDroppedImages($0) },
+                onPromises: { appState.activeChat?.ingestPromises($0) }
+            ))
             .toolbar {
                 // Tab capsule as the principal item: centered in the
                 // toolbar's middle band, width tracking the band via
@@ -144,6 +153,20 @@ struct ContentView: View {
             set: { appState.showSettings = $0 }
         )) {
             SettingsDialog().environment(appState)
+        }
+        // Click-to-preview for attached images (timeline + composer chips).
+        .modalOverlay(isPresented: Binding(
+            get: { appState.previewAttachment != nil },
+            set: { if !$0 { appState.previewAttachment = nil } }
+        )) {
+            if let dataURL = appState.previewAttachment,
+               let image = AttachmentImage.decode(dataURL) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 1000, maxHeight: 700)
+                    .clipShape(.rect(cornerRadius: 10))
+            }
         }
         .background(GlobalKeybinds(toggleSidebar: {
             columnVisibility = columnVisibility == .all ? .detailOnly : .all

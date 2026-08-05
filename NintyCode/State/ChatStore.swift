@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import NintyCore
@@ -103,6 +104,82 @@ final class ChatStore {
     private(set) var model: String
     /// Full "provider/model" reference — persisted in meta so reopening restores the provider too.
     private(set) var modelReference: String
+
+    // MARK: - Attachments (composer staging + card-wide drops)
+
+    /// Images staged for the next prompt (composer chips; per-session).
+    var attachments: [ComposerAttachment] = []
+    /// One-shot channel: a dropped non-image file becomes an @mention the
+    /// composer inserts into its text.
+    var mentionToInsert: String?
+    /// Drag hover state — drives the "Drop files to attach" overlay.
+    var dropTargeted = false
+
+    /// Drop ingestion, fed by the AppKit window-level WindowDropCapture.
+    /// (SwiftUI onDrop never received drags in this view hierarchy —
+    /// validateDrop was never even called, per DEBUG logging — so the
+    /// receiver is a plain NSView behind the window's contentView.)
+    func ingestDroppedURLs(_ urls: [URL]) {
+        #if DEBUG
+        print("[drop] urls:", urls.map(\.lastPathComponent).joined(separator: ", "))
+        #endif
+        for url in urls { mentionOrAttach(url: url) }
+    }
+
+    /// Raw image drops (e.g. from a browser): normalize to PNG data URL.
+    func ingestDroppedImages(_ images: [NSImage]) {
+        #if DEBUG
+        print("[drop] raw images:", images.count)
+        #endif
+        for image in images {
+            guard let tiff = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]) else { continue }
+            let name = "Dropped Image \(Self.dropStamp.string(from: Date())).png"
+            attachments.append(ComposerAttachment(
+                name: name,
+                dataURL: "data:image/png;base64,\(png.base64EncodedString())"
+            ))
+        }
+    }
+
+    /// Promised files (floating screenshot drags): the file materializes
+    /// only after we accept it at a destination directory.
+    func ingestPromises(_ promises: [NSFilePromiseReceiver]) {
+        #if DEBUG
+        print("[drop] promises:", promises.flatMap(\.fileNames).joined(separator: ", "))
+        #endif
+        for promise in promises {
+            promise.receivePromisedFiles(
+                atDestination: FileManager.default.temporaryDirectory,
+                options: [:],
+                operationQueue: .main
+            ) { [weak self] url, _ in
+                Task { @MainActor in self?.mentionOrAttach(url: url) }
+            }
+        }
+    }
+
+    /// Dropped file URL: image by content sniff → attachment, else @mention.
+    private func mentionOrAttach(url: URL) {
+        if let data = try? Data(contentsOf: url), let mime = data.imageMIME {
+            attachments.append(ComposerAttachment(
+                name: url.lastPathComponent,
+                dataURL: "data:\(mime);base64,\(data.base64EncodedString())"
+            ))
+        } else {
+            let path = url.path
+            mentionToInsert = path.hasPrefix(projectRoot.path + "/")
+                ? String(path.dropFirst(projectRoot.path.count + 1))
+                : path
+        }
+    }
+
+    private static let dropStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH-mm-ss"
+        return formatter
+    }()
 
     private let session: AgentSession
     private let store: SessionStore

@@ -42,6 +42,25 @@ struct ChatView: View {
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .hidden()
         )
+        // Card-wide drop target (opencode "Drop files to attach"): images
+        // stage as attachments, other files become @mentions.
+        .overlay {
+            if store.dropTargeted {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    .foregroundStyle(Theme.textAccent)
+                    .background(Theme.textAccent.opacity(0.08), in: .rect(cornerRadius: 10))
+                    .overlay {
+                        Text("Drop files to attach")
+                            .font(Theme.smallMedium)
+                            .foregroundStyle(Theme.textAccent)
+                    }
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
+        // Drop handling is AppKit-level (WindowDropCapture behind the
+        // window's contentView) — SwiftUI onDrop never fired here.
         .alert("Error", isPresented: .constant(store.lastError != nil)) {
             Button("OK") { store.lastError = nil }
         } message: {

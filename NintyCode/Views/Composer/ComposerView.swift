@@ -22,7 +22,9 @@ struct ComposerView: View {
     @State private var mentionResults: [String] = []
     @State private var slashQuery: String?
     @State private var shellMode = false
-    @State private var attachments: [String] = [] // data URLs
+    // Attachments live on the ChatStore: the chat card is the drop target,
+    // staging is per-session.
+    // @State attachments REMOVED — use store.attachments.
     @State private var placeholderIndex = 0
     @State private var showAgentPicker = false
     @FocusState private var focused: Bool
@@ -63,6 +65,13 @@ struct ComposerView: View {
             }
             panel
         }
+        .onChange(of: store.mentionToInsert) {
+            // Card-wide drop of a non-image file lands here as an @mention.
+            if let mention = store.mentionToInsert {
+                text += "@\(mention) "
+                store.mentionToInsert = nil
+            }
+        }
         .onChange(of: store.restoredDraft) {
             if let draft = store.restoredDraft {
                 text = draft
@@ -82,7 +91,7 @@ struct ComposerView: View {
 
     private var panel: some View {
         VStack(spacing: 0) {
-            if !attachments.isEmpty {
+            if !store.attachments.isEmpty {
                 attachmentStrip
             }
             ZStack(alignment: .topLeading) {
@@ -106,6 +115,14 @@ struct ComposerView: View {
                     }
                     .onKeyPress(.escape, phases: .down) { _ in
                         escapeTapped() ? .handled : .ignored
+                    }
+                    .onKeyPress(characters: .init(charactersIn: "v"), phases: .down) { press in
+                        // Manual ⌘V fallback: the TextEditor can swallow the
+                        // paste command before onPasteCommand sees it. Only
+                        // image/file clipboard content is handled here —
+                        // text paste falls through to the editor untouched.
+                        guard press.modifiers.contains(.command) else { return .ignored }
+                        return pasteFromClipboard() ? .handled : .ignored
                     }
                     .onKeyPress(characters: .init(charactersIn: "!"), phases: .down) { _ in
                         if text.isEmpty && !shellMode {
@@ -143,9 +160,7 @@ struct ComposerView: View {
         .onPasteCommand(of: [.png, .tiff, .jpeg, .fileURL]) { providers in
             handlePaste(providers)
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            handleDrop(urls)
-        }
+        // No local dropDestination: the chat card above is the drop zone.
     }
 
     // MARK: - Attachments
@@ -153,9 +168,9 @@ struct ComposerView: View {
     private var attachmentStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(Array(attachments.enumerated()), id: \.offset) { index, dataURL in
-                    AttachmentThumb(dataURL: dataURL) {
-                        attachments.remove(at: index)
+                ForEach(store.attachments) { attachment in
+                    AttachmentChip(attachment: attachment) {
+                        store.attachments.removeAll { $0.id == attachment.id }
                     }
                 }
             }
@@ -164,13 +179,49 @@ struct ComposerView: View {
         }
     }
 
+    private static let pasteStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH-mm-ss"
+        return formatter
+    }()
+
+    /// Manual ⌘V ingestion (see the onKeyPress fallback). Returns false for
+    /// plain-text clipboards so the editor's own paste proceeds.
+    private func pasteFromClipboard() -> Bool {
+        let pasteboard = NSPasteboard.general
+        // Finder-copied file (⌘C): real URL → attachFile keeps the filename.
+        if let string = pasteboard.string(forType: .fileURL),
+           let url = URL(string: string), url.isFileURL {
+            attachFile(url)
+            return true
+        }
+        // Raw image data (screenshot in clipboard, browser copy) → PNG data URL.
+        if let image = NSImage(pasteboard: pasteboard),
+           let tiff = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            let name = "Pasted Image \(Self.pasteStamp.string(from: Date())).png"
+            store.attachments.append(ComposerAttachment(
+                name: name,
+                dataURL: "data:image/png;base64,\(png.base64EncodedString())"
+            ))
+            return true
+        }
+        return false
+    }
+
     private func handlePaste(_ providers: [NSItemProvider]) {
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
                     guard let data, let mime = data.imageMIME else { return }
+                    let ext = mime == "image/jpeg" ? "jpg" : String(mime.dropFirst("image/".count))
+                    let name = "Pasted Image \(Self.pasteStamp.string(from: Date())).\(ext)"
                     Task { @MainActor in
-                        attachments.append("data:\(mime);base64,\(data.base64EncodedString())")
+                        store.attachments.append(ComposerAttachment(
+                            name: name,
+                            dataURL: "data:\(mime);base64,\(data.base64EncodedString())"
+                        ))
                     }
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -183,16 +234,13 @@ struct ComposerView: View {
         }
     }
 
-    private func handleDrop(_ urls: [URL]) -> Bool {
-        guard let url = urls.first else { return false }
-        attachFile(url)
-        return true
-    }
-
     /// Images attach as data URLs; other files become @mentions (opencode file: drop behavior).
     private func attachFile(_ url: URL) {
         if let data = try? Data(contentsOf: url), let mime = data.imageMIME {
-            attachments.append("data:\(mime);base64,\(data.base64EncodedString())")
+            store.attachments.append(ComposerAttachment(
+                name: url.lastPathComponent,
+                dataURL: "data:\(mime);base64,\(data.base64EncodedString())"
+            ))
         } else if let projectRoot = appState.projectRoot {
             let path = url.path
             let relative = path.hasPrefix(projectRoot.path + "/")
@@ -466,8 +514,8 @@ struct ComposerView: View {
                     .background(Theme.textBase, in: .rect(cornerRadius: Theme.radiusSmall))
             }
             .buttonStyle(.plain)
-            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
-            .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty ? 0.5 : 1)
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.attachments.isEmpty)
+            .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.attachments.isEmpty ? 0.5 : 1)
             .keyboardShortcut(.return, modifiers: .command)
             .help(shellMode ? "Run command" : "Send (⌘↵)")
         }
@@ -538,9 +586,9 @@ struct ComposerView: View {
 
     private func send() {
         let value = text
-        let images = attachments
+        let images = store.attachments.map(\.dataURL)
         text = ""
-        attachments = []
+        store.attachments = []
         mentionQuery = nil
         mentionResults = []
         slashQuery = nil
@@ -556,38 +604,60 @@ struct ComposerView: View {
     }
 }
 
-/// Attachment thumbnail with hover-remove (opencode image-attachments).
-struct AttachmentThumb: View {
+/// Named image attachment staged in the composer (data URL + display name
+/// for the chip). Name source: file name for panel/drop, synthesized for paste.
+struct ComposerAttachment: Identifiable {
+    let id = UUID()
+    let name: String
     let dataURL: String
+}
+
+/// Attachment chip: thumbnail + filename + always-visible remove button,
+/// shown above the editor inside the message box.
+struct AttachmentChip: View {
+    @Environment(AppState.self) private var appState
+    let attachment: ComposerAttachment
     let onRemove: () -> Void
-    @State private var hovered = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            if let image = Self.decode(dataURL) {
+        HStack(spacing: 6) {
+            if let image = AttachmentImage.decode(attachment.dataURL) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 48, height: 48)
-                    .clipShape(.rect(cornerRadius: Theme.radiusSmall))
+                    .frame(width: 24, height: 24)
+                    .clipShape(.rect(cornerRadius: 4))
             } else {
                 Image(systemName: "doc")
-                    .frame(width: 48, height: 48)
-                    .background(Theme.layer02, in: .rect(cornerRadius: Theme.radiusSmall))
+                    .font(.system(size: 10))
+                    .frame(width: 24, height: 24)
+                    .background(Theme.layer02, in: .rect(cornerRadius: 4))
             }
-            if hovered {
-                Button(action: onRemove) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white, Theme.danger)
-                }
-                .buttonStyle(.plain)
-                .offset(x: 4, y: -4)
+            Text(attachment.name)
+                .font(Theme.small)
+                .foregroundStyle(Theme.textMuted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 180)
+                .onTapGesture { appState.previewAttachment = attachment.dataURL }
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.textFaint)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help("Remove attachment")
         }
-        .onHover { hovered = $0 }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Theme.layer01, in: .capsule)
     }
+}
 
+/// Shared data-URL → NSImage decoding (composer chips + chat timeline).
+enum AttachmentImage {
     static func decode(_ dataURL: String) -> NSImage? {
         guard let comma = dataURL.firstIndex(of: ","),
               let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { return nil }

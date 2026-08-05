@@ -5,6 +5,7 @@ import NintyCore
 /// User: right-aligned bubble (max 82%, bg layer-02, radius 10), hover meta row.
 /// Assistant: full-width markdown + tool rows, hover meta row.
 struct MessageView: View {
+    @Environment(AppState.self) private var appState
     let message: DisplayMessage
     let agentID: String
     let model: String
@@ -44,15 +45,34 @@ struct MessageView: View {
 
     private var userMessage: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            Text(message.text)
-                .font(Theme.sans)
-                .foregroundStyle(Theme.textBase)
-                .lineSpacing(3)
-                .textSelection(.enabled)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusLarge))
+            // Attached images (data URLs) — without this they send invisibly.
+            if !message.images.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(message.images, id: \.self) { dataURL in
+                        if let image = AttachmentImage.decode(dataURL) {
+                            Image(nsImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: 240, maxHeight: 240)
+                                .clipShape(.rect(cornerRadius: 8))
+                                .onTapGesture { appState.previewAttachment = dataURL }
+                        }
+                    }
+                }
                 .frame(maxWidth: 520, alignment: .trailing)
+            }
+            // No empty bubble for image-only messages.
+            if !message.text.isEmpty {
+                Text(message.text)
+                    .font(Theme.sans)
+                    .foregroundStyle(Theme.textBase)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Theme.layer01, in: .rect(cornerRadius: Theme.radiusLarge))
+                    .frame(maxWidth: 520, alignment: .trailing)
+            }
             metaRow(alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
