@@ -15,7 +15,20 @@ struct MCPBridgedTool: AgentTool {
     var parameters: JSONSchema { schema }
 
     func execute(_ args: JSONValue, ctx: ToolContext) async throws -> ToolResult {
-        try await call(args)
+        if let required = schema.required, !required.isEmpty {
+            let missing = required.filter { key in
+                guard let value = args[key] else { return true }
+                if case .string(let text) = value, text.isEmpty { return true }
+                return false
+            }
+            if !missing.isEmpty {
+                return ToolResult(
+                    output: "Invalid params: missing required parameter(s): \(missing.joined(separator: ", ")). Retry with all required parameters per the schema.",
+                    isError: true
+                )
+            }
+        }
+        return try await call(args)
     }
 }
 

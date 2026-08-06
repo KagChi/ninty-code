@@ -153,7 +153,9 @@ public actor AgentSession {
 
         Long-term memory (`*:search_memories`, `*:list_memories`, `*:store_memory`, \
         `*:update_memory`) — a learning loop across sessions:
-        - Recall: check memories before re-deriving established facts. Use scope \
+        - Recall: check memories before re-deriving established facts. `search_memories` \
+        requires a non-empty `query` string (short topic phrase) — to browse without a \
+        search term use `list_memories` instead. Use scope \
         "\(memoryScope)" for project facts, scope "global" for cross-project knowledge, \
         no scope filter when unsure.
         - Store: when you learn something durable, decide its scope — "global" if it \

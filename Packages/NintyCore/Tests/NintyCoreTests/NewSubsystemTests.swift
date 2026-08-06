@@ -302,3 +302,48 @@ actor SlowMockProvider: ModelProvider {
         receivedPrompts.append(prompt)
     }
 }
+
+@Suite("MCPBridgedTool required params")
+struct MCPBridgedToolTests {
+    private func makeTool(required: [String], called: LockedBox<Bool>) -> MCPBridgedTool {
+        MCPBridgedTool(
+            serverName: "ltm",
+            remoteName: "search_memories",
+            toolDescription: "search",
+            schema: .object(properties: ["query": .string()], required: required)
+        ) { _ in
+            called.set(true)
+            return ToolResult(output: "ok")
+        }
+    }
+
+    private let ctx = ToolContext(projectRoots: [URL(filePath: "/tmp")], sessionID: "test")
+
+    @Test("missing required param blocks remote call")
+    func missingParam() async throws {
+        let called = LockedBox(false)
+        let tool = makeTool(required: ["query"], called: called)
+        let result = try await tool.execute(.object([:]), ctx: ctx)
+        #expect(result.isError)
+        #expect(result.output.contains("query"))
+        #expect(called.get() == false)
+    }
+
+    @Test("empty string required param blocks remote call")
+    func emptyParam() async throws {
+        let called = LockedBox(false)
+        let tool = makeTool(required: ["query"], called: called)
+        let result = try await tool.execute(.object(["query": .string("")]), ctx: ctx)
+        #expect(result.isError)
+        #expect(called.get() == false)
+    }
+
+    @Test("present required param passes through")
+    func validParam() async throws {
+        let called = LockedBox(false)
+        let tool = makeTool(required: ["query"], called: called)
+        let result = try await tool.execute(.object(["query": .string("auth")]), ctx: ctx)
+        #expect(!result.isError)
+        #expect(called.get() == true)
+    }
+}
