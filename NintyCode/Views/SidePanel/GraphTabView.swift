@@ -36,13 +36,17 @@ struct GraphTabView: View {
                     message: "Add graph-mcp to the `mcp` section of ninty.json with a url, e.g.\n\"graph\": { \"url\": \"http://localhost:3001/mcp\" }"
                 )
             case .empty:
-                emptyState(
-                    icon: "point.3.connected.trianglepath.dotted",
-                    title: "Graph is empty",
-                    message: "Sync this workspace to build its code graph.",
-                    actionLabel: resyncing ? nil : "Sync workspace",
-                    action: sync
-                )
+                if appState.graphSyncStatus != nil {
+                    syncProgressState
+                } else {
+                    emptyState(
+                        icon: "point.3.connected.trianglepath.dotted",
+                        title: "Graph is empty",
+                        message: "Sync this workspace to build its code graph.",
+                        actionLabel: resyncing ? nil : "Sync workspace",
+                        action: sync
+                    )
+                }
             case .error(let message):
                 emptyState(
                     icon: "exclamationmark.triangle",
@@ -63,6 +67,30 @@ struct GraphTabView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: appState.workspace?.id) { await load() }
+        .onChange(of: appState.graphSyncStatus) { wasSyncing, syncStatus in
+            // Sync finished while we're looking at an empty/error state: reload.
+            guard wasSyncing != nil, syncStatus == nil else { return }
+            if case .ready = status { return }
+            Task { await load() }
+        }
+    }
+
+    private var syncProgressState: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            ProgressView().controlSize(.regular)
+            Text("Syncing graph").font(Theme.sansMedium).foregroundStyle(Theme.textBase)
+            if let status = appState.graphSyncStatus {
+                Text(status)
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 320)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Toolbar
@@ -95,7 +123,17 @@ struct GraphTabView: View {
 
             Spacer()
 
-            Text(statsText).font(Theme.caption).foregroundStyle(Theme.textMuted)
+            if let syncStatus = appState.graphSyncStatus {
+                ProgressView().controlSize(.mini)
+                Text(syncStatus)
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 200)
+            } else {
+                Text(statsText).font(Theme.caption).foregroundStyle(Theme.textMuted)
+            }
 
             Button {
                 scene.zoomStep(1 / 1.3)

@@ -28,8 +28,19 @@ public actor GraphSyncService {
     /// Returns false when no graph server is available (caller skips silently).
     public typealias UpsertHandler = @Sendable (GraphUpsertPayload) async throws -> Bool
 
+    /// Live sync activity for UI ("Extracting…", "Upserting 120/385 files…").
+    public enum Phase: Sendable, Equatable {
+        case extracting
+        case upserting(filesDone: Int, filesTotal: Int, lastFile: String?)
+    }
+
+    /// Called on every phase transition. Runs on the service's actor —
+    /// implementers must hop to MainActor before touching UI state.
+    public typealias ProgressHandler = @Sendable (Phase?) -> Void
+
     private let extractor = GraphExtractor()
     private let upsert: UpsertHandler
+    private let progress: ProgressHandler?
     private let stateDirectory: URL
 
     private var indexes: [String: GraphWorkspaceIndex] = [:]
@@ -38,9 +49,11 @@ public actor GraphSyncService {
 
     public init(
         upsert: @escaping UpsertHandler,
+        progress: ProgressHandler? = nil,
         stateDirectory: URL? = nil
     ) {
         self.upsert = upsert
+        self.progress = progress
         self.stateDirectory = stateDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".local/share/ninty/graph", isDirectory: true)
@@ -56,6 +69,8 @@ public actor GraphSyncService {
     /// server is bridged.
     @discardableResult
     public func syncFull(workspace: String, roots: [URL], force: Bool = false) async -> Stats? {
+        progress?(.extracting)
+        defer { progress?(nil) }
         let previous = loadState(workspace: workspace)
         let files = extractor.listSourceFiles(roots: roots)
         var index = GraphWorkspaceIndex()
@@ -95,6 +110,9 @@ public actor GraphSyncService {
         // Upsert in batches (dirty files only, unless forced).
         var stats = Stats(deletedFiles: deleted.count)
         let toUpsert = force ? extractions.keys.sorted().map { extractions[$0]! } : dirtyFiles
+        let total = toUpsert.count
+        var filesDone = 0
+        progress?(.upserting(filesDone: 0, filesTotal: total, lastFile: nil))
         let batchSize = 100
         var batch: [GraphFileExtraction] = []
         var firstBatch = true
@@ -104,12 +122,16 @@ public actor GraphSyncService {
                 let deletions = firstBatch ? deleted : []
                 guard await send(workspace: workspace, files: batch, deletedFiles: deletions, stats: &stats) else { return nil }
                 firstBatch = false
+                filesDone += batch.count
+                progress?(.upserting(filesDone: filesDone, filesTotal: total, lastFile: batch.last?.file))
                 batch.removeAll()
             }
         }
         if !batch.isEmpty || !deleted.isEmpty && firstBatch {
             let deletions = firstBatch ? deleted : []
             guard await send(workspace: workspace, files: batch, deletedFiles: deletions, stats: &stats) else { return nil }
+            filesDone += batch.count
+            progress?(.upserting(filesDone: filesDone, filesTotal: total, lastFile: batch.last?.file))
         }
 
         indexes[workspace] = index
@@ -138,6 +160,8 @@ public actor GraphSyncService {
         guard var index = indexes[workspace] else {
             return await syncFull(workspace: workspace, roots: roots)
         }
+        progress?(.extracting)
+        defer { progress?(nil) }
         var facts = factsByWorkspace[workspace] ?? [:]
 
         var updated: [GraphFileExtraction] = []
@@ -175,7 +199,9 @@ public actor GraphSyncService {
         }
 
         var stats = Stats(deletedFiles: deleted.count)
+        progress?(.upserting(filesDone: 0, filesTotal: updated.count, lastFile: updated.last?.file))
         guard await send(workspace: workspace, files: updated, deletedFiles: deleted, stats: &stats) else { return nil }
+        progress?(.upserting(filesDone: updated.count, filesTotal: updated.count, lastFile: updated.last?.file))
 
         indexes[workspace] = index
         factsByWorkspace[workspace] = facts

@@ -637,12 +637,30 @@ final class AppState {
 
     // MARK: - Graph sync
 
+    /// Live sync status for the Graph tab ("Upserting 120/385 files · loader.rs").
+    /// Nil when idle.
+    private(set) var graphSyncStatus: String?
+
     private var graphSync: GraphSyncService?
 
     private func ensureGraphSync() -> GraphSyncService {
         if let graphSync { return graphSync }
         let service = GraphSyncService(upsert: { [weak self] payload in
             await self?.callGraphUpsert(payload) ?? false
+        }, progress: { [weak self] phase in
+            let label: String?
+            switch phase {
+            case .none:
+                label = nil
+            case .extracting:
+                label = "Extracting symbols…"
+            case .upserting(let done, let total, let lastFile):
+                let file = lastFile.map { " · \($0)" } ?? ""
+                label = total > 0 ? "Upserting \(done)/\(total) files\(file)" : "Upserting…"
+            }
+            Task { @MainActor [weak self] in
+                self?.graphSyncStatus = label
+            }
         })
         graphSync = service
         return service
