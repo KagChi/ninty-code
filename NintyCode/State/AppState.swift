@@ -216,6 +216,7 @@ final class AppState {
         startMCP()
         reloadSessions()
         loadProjectFiles()
+        startFileWatcher(for: next)
         // Tabs survive workspace switches (mixed tab strip) — each ChatStore
         // carries its own roots/provider/MCP references.
         expandedWorkspaces.insert(next.id)
@@ -243,6 +244,7 @@ final class AppState {
         resolved = (try? configLoader.load(roots: workspace.folders))
             ?? ResolvedConfig(config: NintyConfig(), projectInstructions: nil, projectRoot: workspace.primaryRoot)
         loadProjectFiles()
+        startFileWatcher(for: workspace)
         for chat in openTabs where chat.workspaceID == workspace.id {
             chat.updateRoots(workspace.folders)
         }
@@ -381,6 +383,7 @@ final class AppState {
                 openWorkspace(next)
             } else {
                 workspace = nil
+                fileWatcher.stop()
                 UserDefaults.standard.removeObject(forKey: "lastWorkspaceID")
                 sessions = []
             }
@@ -640,8 +643,27 @@ final class AppState {
     /// Live sync status for the Graph tab ("Upserting 120/385 files · loader.rs").
     /// Nil when idle.
     private(set) var graphSyncStatus: String?
+    /// Determinate sync fraction (0...1) for the progress bar; nil =
+    /// indeterminate phase (extracting) or idle.
+    private(set) var graphSyncProgress: Double?
+    /// Last completed sync attempt (toolbar "synced Xs ago").
+    private(set) var graphLastSynced: Date?
 
     private var graphSync: GraphSyncService?
+
+    /// Keeps the graph index fresh when files change outside the app
+    /// (editor edits, git pulls) — debounced full sync (stamp-skip makes
+    /// it cheap: only touched files re-extract).
+    private let fileWatcher = WorkspaceFileWatcher()
+
+    private func startFileWatcher(for target: Workspace) {
+        let targetID = target.id
+        fileWatcher.start(roots: target.folders) { [weak self] in
+            guard let self, self.workspace?.id == targetID,
+                  let workspace = self.workspace else { return }
+            await self.ensureGraphSync().syncFull(workspace: workspace.id, roots: workspace.folders)
+        }
+    }
 
     private func ensureGraphSync() -> GraphSyncService {
         if let graphSync { return graphSync }
@@ -649,17 +671,26 @@ final class AppState {
             await self?.callGraphUpsert(payload) ?? false
         }, progress: { [weak self] phase in
             let label: String?
+            let progress: Double?
             switch phase {
             case .none:
                 label = nil
+                progress = nil
             case .extracting:
                 label = "Extracting symbols…"
+                progress = nil // indeterminate
             case .upserting(let done, let total, let lastFile):
                 let file = lastFile.map { " · \($0)" } ?? ""
                 label = total > 0 ? "Upserting \(done)/\(total) files\(file)" : "Upserting…"
+                progress = total > 0 ? Double(done) / Double(total) : nil
             }
             Task { @MainActor [weak self] in
-                self?.graphSyncStatus = label
+                guard let self else { return }
+                self.graphSyncStatus = label
+                self.graphSyncProgress = progress
+                // A nil phase means the sync attempt finished (success is
+                // tracked separately by callers); stamp for "synced Xs ago".
+                if phase == nil { self.graphLastSynced = Date() }
             }
         })
         graphSync = service
@@ -722,6 +753,21 @@ final class AppState {
     func mcpToolAvailable(_ tool: String) async -> Bool {
         guard let workspace, let manager = mcpManagers[workspace.id] else { return false }
         return await manager.bridgedTools().contains { $0.name.hasSuffix(":\(tool)") }
+    }
+
+    /// `callMCPTool` raced against a deadline — nil = timed out. Slow remote
+    /// servers must not hang the Graph tab forever (lazy-load stages use this).
+    func callMCPTool(_ tool: String, _ args: [String: JSONValue], timeout seconds: Double) async -> Result<JSONValue, MCPToolError>? {
+        let worker = Task { @MainActor [weak self] in
+            await self?.callMCPTool(tool, args)
+        }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            worker.cancel() // URLSession-backed transports honor cancellation
+        }
+        let result = await worker.value
+        deadline.cancel()
+        return worker.isCancelled ? nil : result
     }
 
     /// Poll until a bridged tool appears (MCP connect is async at app start)

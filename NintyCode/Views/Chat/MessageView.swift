@@ -63,9 +63,9 @@ struct MessageView: View {
             }
             // No empty bubble for image-only messages.
             if !message.text.isEmpty {
-                Text(message.text)
+                // @file mentions glow (accent + halo) like in the composer.
+                MentionText(text: message.text, files: appState.projectFiles)
                     .font(Theme.sans)
-                    .foregroundStyle(Theme.textBase)
                     .lineSpacing(3)
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)

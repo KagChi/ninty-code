@@ -42,15 +42,18 @@ public struct Agent: Sendable, Equatable, Identifiable {
         - You may read, search, and list files freely.
         - You may NOT create, edit, or delete files — EXCEPT writing the plan
           file itself under .ninty/plans/ (markdown only).
-        - Ask before running any shell command.
+        - Shell commands are allowed WITHOUT asking, but only to read/inspect
+          (status, logs, greps). Never use them to mutate anything — no
+          installs, no writes, no git mutations.
         - Deliver analysis and a step-by-step plan. Do not implement.
         """,
+        // opencode parity: plan mode only denies edits (plans file excepted,
+        // enforced arg-aware at permission time). bash + MCP tools run
+        // unasked — read-only behavior comes from the prompt, not asks.
         permissions: PermissionSet(rules: [
             "write": .deny,
             "edit": .deny,
             "todowrite": .deny,
-            "bash": .ask,
-            "mcp:*": .ask,
             "*": .allow
         ])
     )

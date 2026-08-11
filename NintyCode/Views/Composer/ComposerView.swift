@@ -27,7 +27,9 @@ struct ComposerView: View {
     // @State attachments REMOVED — use store.attachments.
     @State private var placeholderIndex = 0
     @State private var showAgentPicker = false
-    @FocusState private var focused: Bool
+    // Edge-triggered focus commands for the AppKit editor (replaces FocusState).
+    @State private var focusSignal = 0
+    @State private var blurSignal = 0
 
     private let history = PromptHistory()
     private let shellHistory = PromptHistory(shell: true)
@@ -76,7 +78,7 @@ struct ComposerView: View {
             if let draft = store.restoredDraft {
                 text = draft
                 store.restoredDraft = nil
-                focused = true
+                focusSignal += 1
             }
         }
         .onReceive(placeholderTimer) { _ in
@@ -95,74 +97,67 @@ struct ComposerView: View {
                 attachmentStrip
             }
             ZStack(alignment: .topLeading) {
-                TextEditor(text: $text)
-                    .font(shellMode ? Theme.mono : Theme.small)
-                    .foregroundStyle(Theme.textBase)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 60, maxHeight: 180)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .focused($focused)
-                    .onKeyPress(.return, phases: .down) { press in
-                        if press.modifiers.contains(.shift) { return .ignored }
+                MentionTextView(
+                    text: $text,
+                    files: appState.projectFiles,
+                    isMono: shellMode,
+                    focusSignal: focusSignal,
+                    blurSignal: blurSignal,
+                    onReturn: {
                         // Mention popup open → Return completes the selection, not send.
                         if mentionPopupOpen {
                             insertSelectedMention()
-                            return .handled
+                        } else {
+                            send()
                         }
-                        send()
-                        return .handled
-                    }
-                    .onKeyPress(.tab, phases: .down) { _ in
-                        guard mentionPopupOpen else { return .ignored }
+                    },
+                    onTab: {
+                        guard mentionPopupOpen else { return false }
                         insertSelectedMention()
-                        return .handled
-                    }
-                    .onKeyPress(.upArrow, phases: .down) { _ in
+                        return true
+                    },
+                    onArrowUp: {
                         if mentionPopupOpen {
                             moveMentionSelection(-1)
-                            return .handled
+                            return true
                         }
-                        return historyBack() ? .handled : .ignored
-                    }
-                    .onKeyPress(.downArrow, phases: .down) { _ in
+                        return historyBack()
+                    },
+                    onArrowDown: {
                         if mentionPopupOpen {
                             moveMentionSelection(1)
-                            return .handled
+                            return true
                         }
-                        return historyForward() ? .handled : .ignored
-                    }
-                    .onKeyPress(.escape, phases: .down) { _ in
+                        return historyForward()
+                    },
+                    onEscape: {
                         // Popup open → Esc only closes the popup (no abort).
                         if mentionPopupOpen {
                             mentionQuery = nil
                             mentionResults = []
-                            return .handled
+                            return
                         }
-                        return escapeTapped() ? .handled : .ignored
-                    }
-                    .onKeyPress(characters: .init(charactersIn: "v"), phases: .down) { press in
-                        // Manual ⌘V fallback: the TextEditor can swallow the
-                        // paste command before onPasteCommand sees it. Only
-                        // image/file clipboard content is handled here —
-                        // text paste falls through to the editor untouched.
-                        guard press.modifiers.contains(.command) else { return .ignored }
-                        return pasteFromClipboard() ? .handled : .ignored
-                    }
-                    .onKeyPress(characters: .init(charactersIn: "!"), phases: .down) { _ in
+                        _ = escapeTapped()
+                    },
+                    onPaste: { pasteFromClipboard() },
+                    onBang: {
                         if text.isEmpty && !shellMode {
                             shellMode = true
-                            return .handled // eat the "!"
+                            return true // eat the "!"
                         }
-                        return .ignored
+                        return false
                     }
-                    .onChange(of: text) { oldValue, newValue in
-                        if shellMode && oldValue.isEmpty == false && newValue.isEmpty {
-                            shellMode = false // backspace on empty shell prompt exits
-                        }
-                        activeHistory.reset()
-                        updateTriggers()
-                        persistDraft()
+                )
+                .frame(minHeight: 60, maxHeight: 180)
+                .fixedSize(horizontal: false, vertical: true)
+                .onChange(of: text) { oldValue, newValue in
+                    if shellMode && oldValue.isEmpty == false && newValue.isEmpty {
+                        shellMode = false // backspace on empty shell prompt exits
                     }
+                    activeHistory.reset()
+                    updateTriggers()
+                    persistDraft()
+                }
                 if text.isEmpty {
                     Text(shellMode ? "git status" : Self.placeholders[placeholderIndex])
                         .font(Theme.small)
@@ -309,7 +304,7 @@ struct ComposerView: View {
             store.abort()
             return true
         }
-        focused = false
+        blurSignal += 1
         return true
     }
 
@@ -693,7 +688,7 @@ struct ComposerView: View {
             history.push(value)
             store.send(value, images: images)
         }
-        focused = true
+        focusSignal += 1
     }
 }
 

@@ -15,6 +15,19 @@ struct GraphTabView: View {
     @State private var kindFilter: String?
     @State private var resyncing = false
     @State private var statsText = ""
+    /// Lazy-load stages: small first paint, then background backfills
+    /// (graph_subgraph is degree-ordered, so each stage is a superset).
+    private let stageLimits = [120, 300, 500]
+    /// Background stages still loading.
+    @State private var backfilling = false
+    /// A backfill stage timed out — graph stays usable, retry offered.
+    @State private var backfillFailed = false
+    /// Total node count from graph_status (caption "loaded 300/1234").
+    @State private var totalNodes: Int?
+    /// Guards against stale backfills merging into a reloaded scene.
+    @State private var loadGeneration = 0
+    /// Click-to-expand busy indicator.
+    @State private var expanding = false
 
     enum LoadStatus {
         case loading, ready, unavailable, empty
@@ -78,7 +91,13 @@ struct GraphTabView: View {
     private var syncProgressState: some View {
         VStack(spacing: 10) {
             Spacer()
-            ProgressView().controlSize(.regular)
+            if let progress = appState.graphSyncProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 220)
+            } else {
+                ProgressView().controlSize(.regular)
+            }
             Text("Syncing graph").font(Theme.sansMedium).foregroundStyle(Theme.textBase)
             if let status = appState.graphSyncStatus {
                 Text(status)
@@ -91,6 +110,14 @@ struct GraphTabView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Compact relative time for the "synced Xs ago" caption.
+    private static func ago(_ date: Date) -> String {
+        let seconds = max(0, Int(-date.timeIntervalSinceNow))
+        if seconds < 60 { return "\(seconds)s ago" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        return "\(seconds / 3600)h ago"
     }
 
     // MARK: - Toolbar
@@ -124,15 +151,43 @@ struct GraphTabView: View {
             Spacer()
 
             if let syncStatus = appState.graphSyncStatus {
-                ProgressView().controlSize(.mini)
+                // Determinate bar while upserting (fraction known); spinner
+                // during extraction.
+                if let progress = appState.graphSyncProgress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .controlSize(.mini)
+                        .frame(width: 70)
+                } else {
+                    ProgressView().controlSize(.mini)
+                }
                 Text(syncStatus)
                     .font(Theme.caption)
                     .foregroundStyle(Theme.textMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 200)
+            } else if backfilling {
+                ProgressView().controlSize(.mini)
+                Text("Loading more nodes…")
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.textMuted)
             } else {
-                Text(statsText).font(Theme.caption).foregroundStyle(Theme.textMuted)
+                HStack(spacing: 4) {
+                    Text(statsText).font(Theme.caption).foregroundStyle(Theme.textMuted)
+                    if let synced = appState.graphLastSynced {
+                        Text("· synced \(Self.ago(synced))")
+                            .font(Theme.caption)
+                            .foregroundStyle(Theme.textFaint)
+                    }
+                    if backfillFailed {
+                        Button("Retry") { Task { await load() } }
+                            .font(Theme.caption)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Theme.textAccent)
+                            .help("Retry loading the remaining nodes")
+                    }
+                }
             }
 
             Button {
@@ -293,6 +348,22 @@ struct GraphTabView: View {
                     .foregroundStyle(nodeColor(node))
                 Text(node.name).font(Theme.sansMedium)
                 Spacer()
+                // Lazy-load this node's neighborhood into the map on demand
+                // (graph_explain) instead of pulling the whole graph up front.
+                Button {
+                    expandNeighbors(of: node)
+                } label: {
+                    if expanding {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.textMuted)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(expanding)
+                .help("Load this node's neighbors into the map")
                 Text("\(node.file):\(node.line)")
                     .font(Theme.caption)
                     .foregroundStyle(Theme.textMuted)
@@ -409,43 +480,123 @@ struct GraphTabView: View {
         }
     }
 
+    /// Lazy load: stage 1 paints fast (top-degree nodes), remaining stages
+    /// backfill in the background. A slow server only delays the tail.
     private func load() async {
         status = .loading
+        backfillFailed = false
+        loadGeneration += 1
+        let generation = loadGeneration
         guard await appState.waitForMCPTool("graph_subgraph") else {
             status = .unavailable
             return
         }
-        let subgraph = await appState.callMCPTool("graph_subgraph", [
-            "limit": .int(500)
-        ])
-        let payload: [String: JSONValue]
-        switch subgraph {
-        case .success(let value):
-            guard case .object(let object) = value else {
-                status = .error("Unexpected graph_subgraph response")
-                return
-            }
-            payload = object
-        case .failure(let error):
-            status = .error(error.localizedDescription)
+        let first = await fetchSubgraph(limit: stageLimits[0])
+        guard let payload = first.payload else {
+            if !Task.isCancelled { status = .error(first.error ?? "Graph load failed") }
             return
         }
         let nodes = GraphNodeUI.parse(payload["nodes"])
-        let edges = GraphEdgeUI.parse(payload["edges"])
         guard !nodes.isEmpty else {
             status = .empty
             return
         }
-        scene.load(nodes: nodes, edges: edges)
-        if case .success(let stats) = await appState.callMCPTool("graph_status"),
-           case .object(let object) = stats {
-            let nodeCount = object["node_count"]?.intValue ?? nodes.count
-            let edgeCount = object["edge_count"]?.intValue ?? edges.count
-            statsText = "\(nodeCount) nodes · \(edgeCount) edges (top \(nodes.count))"
-        } else {
-            statsText = "\(nodes.count) nodes · \(edges.count) edges"
-        }
+        scene.load(nodes: nodes, edges: GraphEdgeUI.parse(payload["edges"]))
         status = .ready
+        await refreshTotals()
+        updateStats()
+        backfill(from: 1, generation: generation)
+    }
+
+    /// graph_subgraph behind a 20s deadline — timeout becomes an error
+    /// message instead of hanging the tab.
+    private func fetchSubgraph(limit: Int) async -> (payload: [String: JSONValue]?, error: String?) {
+        guard let result = await appState.callMCPTool(
+            "graph_subgraph", ["limit": .int(limit)], timeout: 20
+        ) else {
+            return (nil, "Timed out loading the graph — try again.")
+        }
+        switch result {
+        case .success(let value):
+            guard case .object(let object) = value else {
+                return (nil, "Unexpected graph_subgraph response")
+            }
+            return (object, nil)
+        case .failure(let error):
+            return (nil, error.localizedDescription)
+        }
+    }
+
+    /// Merge the remaining stages without blocking the loaded map.
+    private func backfill(from startStage: Int, generation: Int) {
+        guard startStage < stageLimits.count else { return }
+        backfilling = true
+        Task {
+            for stage in startStage..<stageLimits.count {
+                guard generation == loadGeneration, !Task.isCancelled else { return }
+                let fetched = await fetchSubgraph(limit: stageLimits[stage])
+                guard generation == loadGeneration else { return }
+                guard let payload = fetched.payload else {
+                    // Keep what's loaded; offer a retry in the toolbar.
+                    backfillFailed = true
+                    backfilling = false
+                    return
+                }
+                scene.merge(
+                    nodes: GraphNodeUI.parse(payload["nodes"]),
+                    edges: GraphEdgeUI.parse(payload["edges"])
+                )
+                updateStats()
+            }
+            backfilling = false
+        }
+    }
+
+    /// Click-to-expand: pull one node's neighborhood on demand (graph_explain)
+    /// and merge it into the live scene.
+    private func expandNeighbors(of node: GraphNodeUI) {
+        guard !expanding else { return }
+        expanding = true
+        Task {
+            defer { expanding = false }
+            guard let result = await appState.callMCPTool(
+                "graph_explain", ["node": .string(node.id)], timeout: 20
+            ), case .success(let value) = result,
+                case .object(let object) = value,
+                case .array(let neighbors) = object["neighbors"] else { return }
+            var nodeValues: [JSONValue] = []
+            var edges: [GraphEdgeUI] = []
+            for case .object(let neighbor) in neighbors {
+                guard let nodeValue = neighbor["node"],
+                      case .object(let inner) = nodeValue,
+                      case .string(let key) = inner["node_key"],
+                      case .string(let direction) = neighbor["direction"],
+                      case .string(let kind) = neighbor["kind"] else { continue }
+                nodeValues.append(nodeValue)
+                edges.append(direction == "out"
+                    ? GraphEdgeUI(from: node.id, to: key, kind: kind)
+                    : GraphEdgeUI(from: key, to: node.id, kind: kind))
+            }
+            scene.merge(nodes: GraphNodeUI.parse(.array(nodeValues)), edges: edges)
+            updateStats()
+        }
+    }
+
+    private func refreshTotals() async {
+        if let stats = await appState.callMCPTool("graph_status", [:], timeout: 10),
+           case .success(let value) = stats,
+           case .object(let object) = value {
+            totalNodes = object["node_count"]?.intValue
+        }
+    }
+
+    private func updateStats() {
+        let loaded = scene.nodes.count
+        if let totalNodes, totalNodes > loaded {
+            statsText = "loaded \(loaded)/\(totalNodes) nodes"
+        } else {
+            statsText = "\(loaded) nodes"
+        }
     }
 }
 
@@ -649,8 +800,17 @@ final class GraphScene {
     }
 
     private func startSimulation() {
+        startSimulation(alpha: 1.0, fitOnSettle: true)
+    }
+
+    /// - Parameters:
+    ///   - initialAlpha: 1.0 for fresh layouts; lower (~0.35) to gently
+    ///     settle merged-in nodes without exploding the existing layout.
+    ///   - fitOnSettle: refit the viewport when the sim cools. Off for
+    ///     backfill merges so a zoomed-in user isn't yanked out.
+    private func startSimulation(alpha initialAlpha: Double, fitOnSettle: Bool) {
         simulationTask = Task { [weak self] in
-            var alpha = 1.0
+            var alpha = initialAlpha
             while !Task.isCancelled, alpha > 0.005 {
                 guard let self, let sim = self.snapshot() else { return }
                 let center = SIMD2<Double>(x: self.canvasSize.width / 2, y: self.canvasSize.height / 2)
@@ -663,8 +823,86 @@ final class GraphScene {
                 alpha *= 0.97
                 try? await Task.sleep(for: .milliseconds(33))
             }
-            self?.fitToView()
+            if fitOnSettle { self?.fitToView() }
         }
+    }
+
+    private struct EdgeKey: Hashable {
+        let from, to, kind: String
+    }
+
+    /// Merge a superset batch (staged subgraph backfill) or a neighborhood
+    /// (click-to-expand) into the live scene. Existing nodes keep their
+    /// positions; new nodes seed near their loaded neighbors. Returns the
+    /// number of nodes added.
+    @discardableResult
+    func merge(nodes newNodes: [GraphNodeUI], edges newEdges: [GraphEdgeUI]) -> Int {
+        simulationTask?.cancel()
+        var merged = nodes
+        var newIndex = index
+        var added = 0
+
+        // Adjacency within the incoming batch → seed positions.
+        var batchNeighbors: [String: [String]] = [:]
+        for edge in newEdges {
+            batchNeighbors[edge.from, default: []].append(edge.to)
+            batchNeighbors[edge.to, default: []].append(edge.from)
+        }
+
+        for node in newNodes where newIndex[node.id] == nil {
+            var seeded = node
+            var sumX: CGFloat = 0, sumY: CGFloat = 0, known = 0
+            for key in batchNeighbors[node.id] ?? [] {
+                guard let i = newIndex[key] else { continue }
+                sumX += merged[i].position.x
+                sumY += merged[i].position.y
+                known += 1
+            }
+            if known > 0 {
+                seeded.position = CGPoint(
+                    x: sumX / CGFloat(known) + CGFloat.random(in: -30...30),
+                    y: sumY / CGFloat(known) + CGFloat.random(in: -30...30)
+                )
+            } else {
+                seeded.position = CGPoint(
+                    x: canvasSize.width / 2 + CGFloat.random(in: -90...90),
+                    y: canvasSize.height / 2 + CGFloat.random(in: -90...90)
+                )
+            }
+            merged.append(seeded)
+            newIndex[node.id] = merged.count - 1
+            added += 1
+        }
+
+        var seenEdges = Set(edges.map { EdgeKey(from: $0.from, to: $0.to, kind: $0.kind) })
+        var mergedEdges = edges
+        for edge in newEdges where seenEdges.insert(EdgeKey(from: edge.from, to: edge.to, kind: edge.kind)).inserted {
+            mergedEdges.append(edge)
+        }
+
+        guard added > 0 || mergedEdges.count != edges.count else {
+            startSimulation(alpha: 0.2, fitOnSettle: false)
+            return 0
+        }
+
+        nodes = merged
+        edges = mergedEdges
+        index = newIndex
+        var newAdjacency: [String: [String]] = [:]
+        for edge in mergedEdges {
+            newAdjacency[edge.from, default: []].append(edge.to)
+            newAdjacency[edge.to, default: []].append(edge.from)
+        }
+        adjacency = newAdjacency
+        for i in nodes.indices {
+            nodes[i].degree = adjacency[nodes[i].id]?.count ?? 0
+        }
+        springs = mergedEdges.compactMap { edge in
+            guard let a = index[edge.from], let b = index[edge.to] else { return nil }
+            return Spring(a: a, b: b)
+        }
+        startSimulation(alpha: 0.35, fitOnSettle: false)
+        return added
     }
 
     private func snapshot() -> SimState? {

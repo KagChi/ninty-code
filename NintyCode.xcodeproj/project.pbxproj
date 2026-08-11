@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		073522FF60FD91AB0E564AC2 /* MentionTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 940FD781E7D532BD10A769D6 /* MentionTextView.swift */; };
 		0CE060D310DA747F78D77993 /* MessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101DDE0D1213D26582255FB4 /* MessageView.swift */; };
 		0D274A81BEF0B12A62A8E69B /* NintyCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1DBB7BB224A670DDC38EE53C /* NintyCore */; };
 		11721D64733EB3F8A9F30F48 /* TabStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC078AAD80C9AB9D0E89984 /* TabStripView.swift */; };
@@ -23,6 +24,7 @@
 		56992C066B37D29323DCADCB /* LtmTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F8D513F9B24702B7EF9473D /* LtmTabView.swift */; };
 		6DACC1F7F9B6556E24613AFB /* PromptHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99644000F5673061085BD1E9 /* PromptHistory.swift */; };
 		73A1F76BEE7E33351B9B9182 /* GraphTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BD559F976A7DF517041C53 /* GraphTabView.swift */; };
+		B9F21B795078688E78D644E2 /* WorkspaceFileWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0CB8C17C41E6A7CCF80EF10 /* WorkspaceFileWatcher.swift */; };
 		C36ABEF37FBFEFCCB7862162 /* SidePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122749A854105B274F6033E7 /* SidePanelView.swift */; };
 		CAC2ADB8EDE8A3306A57CDF4 /* Dialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6FE371C457BBD12F54BE8D /* Dialogs.swift */; };
 		E0AA30BB997A73BBA1B89902 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17708EBF376022B1CEB684F9 /* MarkdownText.swift */; };
@@ -45,6 +47,7 @@
 		75C1165C7CBC9D8273BCC0A3 /* JSONValue+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSONValue+Helpers.swift"; sourceTree = "<group>"; };
 		7F8D513F9B24702B7EF9473D /* LtmTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LtmTabView.swift; sourceTree = "<group>"; };
 		9349D4E39A86CD1A62F62345 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		940FD781E7D532BD10A769D6 /* MentionTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MentionTextView.swift; sourceTree = "<group>"; };
 		945032613CB81D306B36EC12 /* ChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStore.swift; sourceTree = "<group>"; };
 		97BD559F976A7DF517041C53 /* GraphTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphTabView.swift; sourceTree = "<group>"; };
 		99644000F5673061085BD1E9 /* PromptHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptHistory.swift; sourceTree = "<group>"; };
@@ -55,6 +58,7 @@
 		C67EC59E1D02A5CFA6EAE096 /* NintyCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NintyCore; path = Packages/NintyCore; sourceTree = SOURCE_ROOT; };
 		CEC078AAD80C9AB9D0E89984 /* TabStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStripView.swift; sourceTree = "<group>"; };
 		DBBFB1ECC604F20EF488C358 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		E0CB8C17C41E6A7CCF80EF10 /* WorkspaceFileWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileWatcher.swift; sourceTree = "<group>"; };
 		EBFEDE6172339CB0DC9C8EE4 /* NintyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NintyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F02A447C9850494386789819 /* PermissionPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionPromptView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -145,6 +149,7 @@
 				9349D4E39A86CD1A62F62345 /* AppState.swift */,
 				945032613CB81D306B36EC12 /* ChatStore.swift */,
 				99644000F5673061085BD1E9 /* PromptHistory.swift */,
+				E0CB8C17C41E6A7CCF80EF10 /* WorkspaceFileWatcher.swift */,
 			);
 			path = State;
 			sourceTree = "<group>";
@@ -201,6 +206,7 @@
 			isa = PBXGroup;
 			children = (
 				02937BA2AEA821B8BCDE7ADA /* ComposerView.swift */,
+				940FD781E7D532BD10A769D6 /* MentionTextView.swift */,
 			);
 			path = Composer;
 			sourceTree = "<group>";
@@ -290,6 +296,7 @@
 				1980BD3E91FC4325604AA638 /* JSONValue+Helpers.swift in Sources */,
 				56992C066B37D29323DCADCB /* LtmTabView.swift in Sources */,
 				E0AA30BB997A73BBA1B89902 /* MarkdownText.swift in Sources */,
+				073522FF60FD91AB0E564AC2 /* MentionTextView.swift in Sources */,
 				0CE060D310DA747F78D77993 /* MessageView.swift in Sources */,
 				EBBAC666568A5264CF41FC78 /* NintyCodeApp.swift in Sources */,
 				3EE77E1CA94F2B6D8EE8B4FF /* PermissionPromptView.swift in Sources */,
@@ -301,6 +308,7 @@
 				3758B8F40BD832142C2624C0 /* Theme.swift in Sources */,
 				F04B502AD8F915D11ED4E01D /* ToolCallCard.swift in Sources */,
 				52FDCA75144CAEF6B9D9C315 /* WindowChrome.swift in Sources */,
+				B9F21B795078688E78D644E2 /* WorkspaceFileWatcher.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

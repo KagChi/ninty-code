@@ -79,7 +79,11 @@ struct DisplayMessage: Identifiable, Equatable {
 @Observable
 @MainActor
 final class ChatStore {
-    var messages: [DisplayMessage] = []
+    /// Monotonic bump on EVERY timeline mutation (message add/stream/tool
+    /// update, changed-files section). Drives ChatView autoscroll — count or
+    /// text-length tracking missed tool-call/result updates.
+    private(set) var timelineVersion = 0
+    var messages: [DisplayMessage] = [] { didSet { timelineVersion += 1 } }
     var streaming = false
     /// Turn start — drives the live elapsed label in ThinkingRow and the
     /// completion footer stamp. Set when streaming flips on, cleared at done/error.
@@ -95,7 +99,8 @@ final class ChatStore {
     /// HTTP retry in progress: (attempt, delay seconds). Nil = not retrying.
     var retry: (attempt: Int, delay: Int)?
     /// Files changed during the last completed turn ("Changed N files" accordion).
-    var changedFiles: [ChangedFile] = []
+    /// Also part of the timeline — its appearance must trigger autoscroll.
+    var changedFiles: [ChangedFile] = [] { didSet { timelineVersion += 1 } }
     /// Set by AppState: whether this tab is currently visible.
     var isActive = false
     /// Background activity marker (opencode unread dot).
@@ -240,15 +245,7 @@ final class ChatStore {
         self.mcpManager = mcpManager
 
         let todoStore = TodoStore()
-        var registry = ToolRegistry.builtIns(todoStore: todoStore)
-        if let mcpManager {
-            // Bridge MCP tools synchronously unavailable; kick off async registration.
-            Task {
-                for tool in await mcpManager.bridgedTools() {
-                    try? registry.register(tool)
-                }
-            }
-        }
+        let registry = ToolRegistry.builtIns(todoStore: todoStore)
         let store = SessionStore(storageKey: workspaceID)
         self.store = store
         self.session = AgentSession(
@@ -265,6 +262,38 @@ final class ChatStore {
             projectInstructions: projectInstructions,
             workspaceID: workspaceID
         )
+        if let mcpManager {
+            // MCP connect is async — poll until bridged tools appear so the
+            // session reliably gets graph/memory tools. The old one-shot
+            // registration raced the connect and lost, leaving the agent
+            // without graph:* tools (it fell back to grep scans).
+            // register() rejects duplicates, so re-sweeping is safe; the
+            // registry is a reference type — AgentSession reads fresh
+            // definitions every turn and picks up late registrations.
+            Task { [weak self] in
+                var registered = Set<String>()
+                func sweep() async {
+                    for tool in await mcpManager.bridgedTools() where !registered.contains(tool.name) {
+                        if (try? registry.register(tool)) != nil { registered.insert(tool.name) }
+                    }
+                }
+                // Phase 1: up to 10s for the first bridged tools.
+                for _ in 0..<20 {
+                    if Task.isCancelled { return }
+                    guard self != nil else { return }
+                    await sweep()
+                    if !registered.isEmpty { break }
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                // Phase 2: slow/late servers — keep sweeping for ~2 min.
+                for _ in 0..<24 {
+                    try? await Task.sleep(for: .seconds(5))
+                    if Task.isCancelled { return }
+                    guard self != nil else { return }
+                    await sweep()
+                }
+            }
+        }
         // Restore existing history when reopening a session.
         Task {
             systemPrompt = await session.currentSystemPrompt

@@ -38,7 +38,11 @@ struct PermissionSetTests {
         #expect(plan.action(for: "write") == .deny)
         #expect(plan.action(for: "edit") == .deny)
         #expect(plan.action(for: "todowrite") == .deny)
-        #expect(plan.action(for: "bash") == .ask)
+        // opencode parity: plan mode asks nothing — bash and MCP tools run
+        // unasked; read-only behavior is prompt-enforced, not ask-enforced.
+        #expect(plan.action(for: "bash") == .allow)
+        #expect(plan.action(for: "graph:graph_query") == .allow)
+        #expect(plan.action(for: "ltm:search_memories") == .allow)
         #expect(plan.action(for: "read") == .allow)
         #expect(plan.action(for: "grep") == .allow)
         #expect(plan.action(for: "glob") == .allow)
@@ -70,7 +74,7 @@ struct PermissionEngineTests {
     @Test("ask suspends until reply, always allowlists")
     func askFlow() async throws {
         let engine = PermissionEngine()
-        let rules = Agent.plan.permissions
+        let rules = PermissionSet(rules: ["bash": .ask, "*": .allow])
         let asked = Locked<PermissionRequest?>(nil)
 
         let task = Task {
@@ -101,7 +105,7 @@ struct PermissionEngineTests {
         let task = Task {
             try await engine.authorize(
                 tool: "bash", arguments: [:], preview: "rm -rf x",
-                rules: Agent.plan.permissions, onAsk: { asked.value = $0 }
+                rules: PermissionSet(rules: ["bash": .ask, "*": .allow]), onAsk: { asked.value = $0 }
             )
         }
         let surfaced = await waitUntil { asked.value != nil }

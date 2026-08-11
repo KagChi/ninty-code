@@ -112,22 +112,28 @@ struct ChatView: View {
                 Color.clear
                     .frame(height: 1)
                     .id("bottom")
-                    .onAppear { userScrolledUp = false }
-                    .onDisappear { userScrolledUp = true }
             }
-            .onChange(of: store.messages.last?.text.count ?? 0) {
+            // Restored sessions open at the latest message.
+            .defaultScrollAnchor(.bottom)
+            // Authoritative scroll tracking: real distance-to-bottom from the
+            // scroll geometry. The old bottom-sentinel onAppear/onDisappear
+            // never registered "scrolled up" mid-stream because the forced
+            // snap-back kept the sentinel visible — trapping the user at the
+            // bottom. Scrolling up >80pt stops auto-follow immediately;
+            // returning near the bottom resumes it.
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let distanceFromBottom = geometry.contentSize.height
+                    - (geometry.contentOffset.y + geometry.containerSize.height)
+                return distanceFromBottom > 80
+            } action: { _, isScrolledUp in
+                userScrolledUp = isScrolledUp
+            }
+            // timelineVersion bumps on every timeline mutation (text deltas,
+            // tool call starts/updates, results, new messages, changed-files).
+            // Only follow while pinned to the bottom — never yank a reader.
+            .onChange(of: store.timelineVersion) {
                 guard !userScrolledUp else { return }
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
-            .onChange(of: store.messages.count) {
-                userScrolledUp = false
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
-            .onChange(of: store.changedFiles.count) { _, count in
-                // Turn-end summary lands after the last message — keep it visible.
-                guard count > 0 else { return }
-                userScrolledUp = false
-                proxy.scrollTo("bottom", anchor: .bottom)
+                scrollToBottom(proxy)
             }
             .overlay(alignment: .bottom) {
                 if userScrolledUp {
@@ -147,6 +153,17 @@ struct ChatView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: userScrolledUp)
+        }
+    }
+
+    /// Scroll to the tail now, and once more after lazy layout settles —
+    /// LazyVStack underestimates unmeasured row heights, so a single
+    /// scrollTo can land short of the true bottom.
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        proxy.scrollTo("bottom", anchor: .bottom)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(60))
+            proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
 }
