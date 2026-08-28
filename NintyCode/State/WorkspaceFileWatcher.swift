@@ -46,12 +46,11 @@ final class WorkspaceFileWatcher: @unchecked Sendable {
         }
         watchedPaths = paths
         if let old = stream {
+            // Null immediately to reject future callbacks, then clean up
+            stream = nil
             FSEventStreamStop(old)
             FSEventStreamInvalidate(old)
-            // Deferred: callbacks already on the main queue still reference
-            // this stream's eventPaths buffer.
             DispatchQueue.main.async { FSEventStreamRelease(old) }
-            stream = nil
         }
         debounceTask?.cancel()
 
@@ -86,18 +85,23 @@ final class WorkspaceFileWatcher: @unchecked Sendable {
         lock.lock()
         watchedPaths = []
         if let stream {
-            FSEventStreamStop(stream)
-            FSEventStreamInvalidate(stream)
-            DispatchQueue.main.async { FSEventStreamRelease(stream) }
-            self.stream = nil
+            let oldStream = stream  // Capture before nulling
+            stream = nil  // Null immediately to reject future callbacks
+            FSEventStreamStop(oldStream)
+            FSEventStreamInvalidate(oldStream)
         }
+        onChange = nil
         debounceTask?.cancel()
         debounceTask = nil
-        onChange = nil
         lock.unlock()
+
+        // After lock is released, schedule cleanup
+        if let oldStream {
+            DispatchQueue.main.async { FSEventStreamRelease(oldStream) }
+        }
     }
 
-    private func handle(stream streamRef: FSEventStreamRef, eventPaths: UnsafeMutableRawPointer) {
+private func handle(stream streamRef: FSEventStreamRef, eventPaths: UnsafeMutableRawPointer) {
         // Stale callback from a superseded stream — drop it.
         lock.lock()
         let isCurrent = streamRef == stream
@@ -105,20 +109,32 @@ final class WorkspaceFileWatcher: @unchecked Sendable {
         guard isCurrent else { return }
 
         // eventPaths is a CFArray of CFStrings. Extract element-by-element
-        // via plain C APIs — never bridge the whole array blindly (a freed
-        // buffer once reached that cast and took the app down).
-        let cfArray = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue()
+        // via plain C APIs. Use takeRetainedValue() for explicit ownership
+        // control, then release when done. This prevents use-after-free
+        // crashes when the stream tears down.
+        let cfArray = Unmanaged<CFArray>.fromOpaque(eventPaths).takeRetainedValue()
+        defer { cfArray.release() }
+        
         let count = CFArrayGetCount(cfArray)
         var paths: [String] = []
         paths.reserveCapacity(count)
         for index in 0..<count {
-            guard let item = CFArrayGetValueAtIndex(cfArray, index) else { continue }
+            guard let item = CFArrayGetValueAtIndex(cfArray, index),
+                  item != nil else { 
+                // Defensive: skip invalid or unexpected array items
+                continue 
+            }
             // Elements are CFStrings; macOS 26 imports the accessors typed.
             let cfString = unsafeBitCast(item, to: CFString.self)
             if let cString = CFStringGetCStringPtr(cfString, CFStringBuiltInEncodings.UTF8.rawValue) {
                 paths.append(String(cString: cString))
                 continue
             }
+            var buffer = [CChar](repeating: 0, count: 4096) // PATH_MAX × max UTF-8 width
+            if CFStringGetCString(cfString, &buffer, CFIndex(buffer.count), CFStringBuiltInEncodings.UTF8.rawValue) {
+                paths.append(String(cString: buffer))
+            }
+        }
             var buffer = [CChar](repeating: 0, count: 4096) // PATH_MAX × max UTF-8 width
             if CFStringGetCString(cfString, &buffer, CFIndex(buffer.count), CFStringBuiltInEncodings.UTF8.rawValue) {
                 paths.append(String(cString: buffer))
