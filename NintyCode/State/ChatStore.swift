@@ -734,6 +734,17 @@ final class ChatStore {
                 onChange()
             }
         }
+        if agent.id == "plan", !PermissionSet.isReadOnlyBash(trimmed) {
+            Task {
+                let callID = UUID().uuidString
+                let display = ToolCallDisplay(id: callID, name: "bash",
+                                              arguments: .object(["command": .string(trimmed)]))
+                messages.append(DisplayMessage(role: .assistant, blocks: [.toolCall(display)]))
+                updateToolCall(id: callID, name: "bash", output: "Permission denied: plan mode blocks mutating shell commands", isError: true)
+                streaming = false
+            }
+            return
+        }
         Task {
             let callID = UUID().uuidString
             let display = ToolCallDisplay(id: callID, name: "bash",

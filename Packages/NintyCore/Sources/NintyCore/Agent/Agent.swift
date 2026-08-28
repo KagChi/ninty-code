@@ -47,9 +47,6 @@ public struct Agent: Sendable, Equatable, Identifiable {
           installs, no writes, no git mutations.
         - Deliver analysis and a step-by-step plan. Do not implement.
         """,
-        // opencode parity: plan mode only denies edits (plans file excepted,
-        // enforced arg-aware at permission time). bash + MCP tools run
-        // unasked — read-only behavior comes from the prompt, not asks.
         permissions: PermissionSet(rules: [
             "write": .deny,
             "edit": .deny,

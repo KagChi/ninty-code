@@ -41,18 +41,70 @@ public struct PermissionSet: Sendable, Equatable {
     /// Argument-aware eval (opencode plan agent: write/edit denied EXCEPT plans dir).
     /// `isPlan` enables the plans-file exception for write/edit.
     public func action(for tool: String, arguments: JSONValue, isPlan: Bool) -> PermissionAction {
-        if isPlan, tool == "write" || tool == "edit",
-           let path = arguments["path"]?.stringValue,
-           Self.isPlansPath(path) {
-            return .allow
+        if isPlan {
+            if tool == "write" || tool == "edit" {
+                if let path = arguments["path"]?.stringValue, Self.isPlansPath(path) { return .allow }
+                return .deny
+            }
+            if tool == "todowrite" { return .deny }
+            if tool == "bash" {
+                if let cmd = arguments["command"]?.stringValue, Self.isReadOnlyBash(cmd) { return .allow }
+                return .deny
+            }
+            if Self.isMcpWriteTool(tool) { return .deny }
         }
         return action(for: tool)
     }
 
     /// `.ninty/plans/*.md` (project) or global plans dir — matched loosely by suffix.
-    static func isPlansPath(_ path: String) -> Bool {
+    public static func isPlansPath(_ path: String) -> Bool {
         path.hasSuffix(".md")
             && (path.contains(".ninty/plans/") || path.contains(".config/ninty/plans/") || path.contains(".local/share/ninty/plans/"))
+    }
+
+    public static func isReadOnlyBash(_ command: String) -> Bool {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        let lower = trimmed.lowercased()
+        if lower.contains("| sh") || lower.contains("| bash") || lower.contains("| zsh") || lower.contains("| sudo") { return false }
+        let strippedFD = lower
+            .replacingOccurrences(of: "2>&1", with: "")
+            .replacingOccurrences(of: "1>&2", with: "")
+            .replacingOccurrences(of: "&>", with: "")
+        if strippedFD.contains(">") || strippedFD.contains(">>") { return false }
+        if strippedFD.contains("| tee") { return false }
+        let mutatingVerbs = [
+            " rm ", " rm\t", "rm ", "mv ", "cp ", "mkdir ", "touch ", "chmod ", "chown ",
+            " ln ", "truncate ", " shred ", " mkfs", " dd ",
+            " npm ", "npm install", "npm ci", "pnpm ", "yarn ", "bun ", "swift package",
+            "swift build", "swift run", "xcodebuild ", "make ", "cmake ", "cargo ",
+            "sudo ", " sed -i", "sed -i", "awk -i inplace"
+        ]
+        for verb in mutatingVerbs where lower.contains(verb) { return false }
+        if lower.hasPrefix("rm ") || lower.hasPrefix("mv ") || lower.hasPrefix("cp ") { return false }
+        if lower.contains("git ") {
+            let allowedGit = ["status", "log", "diff", "show", "rev-parse", "ls-files", "ls-remote", "remote", "branch --list", "branch -a", "branch --show", "grep", "blame", "shortlog", "config --get", "config --list", "tag --list"]
+            let gitMutating = ["add", "commit", "push", "pull", "fetch", "checkout", "switch", "restore", "reset", "merge", "rebase", "cherry-pick", "stash", "clean", "rm", "mv", "branch -d", "branch -m", "tag -d", "init", "clone"]
+            for m in gitMutating where lower.contains("git \(m)") { return false }
+            let isGitRead = allowedGit.contains { lower.contains("git \($0)") }
+            let isBareGit = lower == "git status" || lower.hasPrefix("git status ")
+            if !isGitRead && !isBareGit && lower.contains("git ") {
+                let hasAllowed = allowedGit.contains { lower.contains($0) }
+                if !hasAllowed { return false }
+            }
+        }
+        return true
+    }
+
+    public static func isMcpWriteTool(_ tool: String) -> Bool {
+        guard tool.contains(":") else { return false }
+        let readSuffixes = [
+            "search_memories", "list_memories", "get_memory", "list_tags", "list_collections",
+            "graph_query", "graph_search", "graph_explain", "graph_path", "graph_status",
+            "graph_subgraph", "graph_get", "graph_list"
+        ]
+        for suffix in readSuffixes where tool.hasSuffix(":\(suffix)") { return false }
+        return true
     }
 }
 

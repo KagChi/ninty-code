@@ -505,16 +505,14 @@ public actor AgentSession {
         tool: any AgentTool, arguments: JSONValue, callID: String
     ) async -> ToolResult {
         let preview = Self.preview(for: tool.name, arguments: arguments)
-        // Snapshot + changed-file tracking before any edit/write mutation.
-        if tool.name == "edit" || tool.name == "write",
-           let path = arguments["path"]?.stringValue {
-            let resolved = ToolContext(projectRoots: projectRoots, sessionID: id).resolve(path).path
-            await snapshots.recordOriginal(path: resolved)
-            turnChangedFiles.insert(path)
-        }
-        // Plan agent: write/edit allowed for plans files only (opencode parity).
         let effectiveAction = agent.permissions.action(for: tool.name, arguments: arguments, isPlan: agent.id == "plan")
         if effectiveAction == .allow {
+            if tool.name == "edit" || tool.name == "write",
+               let path = arguments["path"]?.stringValue {
+                let resolved = ToolContext(projectRoots: projectRoots, sessionID: id).resolve(path).path
+                await snapshots.recordOriginal(path: resolved)
+                turnChangedFiles.insert(path)
+            }
             do {
                 return try await tool.execute(arguments, ctx: ToolContext(projectRoots: projectRoots, sessionID: id))
             } catch {

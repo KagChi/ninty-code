@@ -203,8 +203,8 @@ struct AgentSessionTests {
         try await store.delete(id: session.id)
     }
 
-    @Test("plan mode bash asks, approval runs command")
-    func planBashAsk() async throws {
+    @Test("plan mode bash read-only runs without asking")
+    func planBashReadOnly() async throws {
         let args = "{\"command\": \"echo allowed-cmd\"}"
         let (session, _, store, collector) = try makeSession(scripts: [
             [.toolCallStart(id: "c1", name: "bash"), .toolCallDelta(id: "c1", argumentsFragment: args),
@@ -213,16 +213,6 @@ struct AgentSessionTests {
         ], agent: .plan)
         _ = try await store.create(id: session.id, title: "t", agentID: "plan", model: "m")
         await session.send("run something")
-        let askEvents = collector.waitFor(10) {
-            if case .permissionAsked = $0 { return true }
-            return false
-        }
-        let request = askEvents.compactMap {
-            if case .permissionAsked(let r) = $0 { r } else { nil }
-        }.first
-        #expect(request?.tool == "bash")
-        #expect(request?.preview == "echo allowed-cmd")
-        await session.replyPermission(try #require(request).id, .once)
         let events = collector.waitFor(10, isDone)
         #expect(events.contains {
             if case .toolResult(_, let name, let output, let isError) = $0 {
@@ -230,6 +220,53 @@ struct AgentSessionTests {
             }
             return false
         })
+        #expect(!events.contains { if case .permissionAsked = $0 { return true }; return false })
         try await store.delete(id: session.id)
+    }
+
+    @Test("plan mode bash mutating denied without asking")
+    func planBashMutatingDenied() async throws {
+        let args = "{\"command\": \"echo hi > /tmp/x\"}"
+        let (session, _, store, collector) = try makeSession(scripts: [
+            [.toolCallStart(id: "c1", name: "bash"), .toolCallDelta(id: "c1", argumentsFragment: args),
+             .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
+            [.textDelta("Done."), .finish(reason: .stop)]
+        ], agent: .plan)
+        _ = try await store.create(id: session.id, title: "t", agentID: "plan", model: "m")
+        await session.send("mutate")
+        let events = collector.waitFor(10, isDone)
+        #expect(events.contains {
+            if case .toolResult(_, let name, _, let isError) = $0 { return name == "bash" && isError }
+            return false
+        })
+        #expect(!events.contains { if case .permissionAsked = $0 { return true }; return false })
+        try await store.delete(id: session.id)
+    }
+
+    @Test("plan mode MCP write denied")
+    func planMcpWriteDenied() async throws {
+        let mcpTool = MCPBridgedTool(serverName: "ltm", remoteName: "store_memory", toolDescription: "store", schema: .object(properties: [:])) { _ in ToolResult(output: "stored") }
+        let todoStore = TodoStore()
+        let registry = ToolRegistry.builtIns(todoStore: todoStore)
+        try registry.register(mcpTool)
+        let testProject = project.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: testProject, withIntermediateDirectories: true)
+        let sessionID = UUID().uuidString
+        let provider = MockProvider(scripts: [
+            [.toolCallStart(id: "c1", name: "ltm:store_memory"), .toolCallDelta(id: "c1", argumentsFragment: "{}"),
+             .toolCallEnd(id: "c1"), .finish(reason: .toolCalls)],
+            [.textDelta("Done."), .finish(reason: .stop)]
+        ])
+        let store = SessionStore(projectRoot: testProject, baseDirectory: base)
+        let session = AgentSession(id: sessionID, agent: .plan, provider: provider, model: "m", contextWindow: 100_000, registry: registry, store: store, todoStore: todoStore, projectRoots: [testProject], projectInstructions: nil)
+        let collector = EventCollector(session: session)
+        _ = try await store.create(id: sessionID, title: "t", agentID: "plan", model: "m")
+        await session.send("store")
+        let events = collector.waitFor(10, isDone)
+        #expect(events.contains {
+            if case .toolResult(_, let name, _, let isError) = $0 { return name == "ltm:store_memory" && isError }
+            return false
+        })
+        try await store.delete(id: sessionID)
     }
 }
