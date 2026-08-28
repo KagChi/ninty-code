@@ -2,15 +2,8 @@ import CoreServices
 import Foundation
 import NintyCore
 
-/// Watches workspace roots for file changes (FSEvents) and fires a
-/// debounced callback. Feeds GraphSyncService so the code graph stays
-/// current when files change OUTSIDE the app (user's editor, git pulls) —
-/// previously only agent-made edits and app launches refreshed the index.
-///
-/// Threading: callbacks AND start/stop both run on the main queue, so all
-/// state handoffs are serialized. Stream teardown defers FSEventStreamRelease
-/// so already-enqueued callbacks never touch a freed stream (that raced and
-/// crashed with EXC_BAD_ACCESS on the eventPaths cast).
+/// Watches workspace roots for file changes via FSEvents. All operations run on
+/// DispatchQueue.main; debounce throttles rapid bursts so indexing is cheap.
 final class WorkspaceFileWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private var watchedPaths: [String] = []
@@ -28,8 +21,6 @@ final class WorkspaceFileWatcher: @unchecked Sendable {
         if let stream {
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
-            // Deferred like start()/stop(): main-queue callbacks enqueued
-            // before invalidate must finish before the stream is freed.
             DispatchQueue.main.async { FSEventStreamRelease(stream) }
         }
     }
@@ -38,15 +29,16 @@ final class WorkspaceFileWatcher: @unchecked Sendable {
         lock.lock()
         self.onChange = onChange
         let paths = roots.map(\.path)
-        // openWorkspace runs on every tab activation — same roots must NOT
-        // tear down the stream (recreate churn is what raced callbacks).
+        
+        // Skip if already watching same paths.
         if stream != nil, paths == watchedPaths {
             lock.unlock()
             return
         }
         watchedPaths = paths
+
+        // Stop existing stream first, setting nil immediately.
         if let old = stream {
-            // Null immediately to reject future callbacks, then clean up
             stream = nil
             FSEventStreamStop(old)
             FSEventStreamInvalidate(old)
@@ -59,17 +51,21 @@ final class WorkspaceFileWatcher: @unchecked Sendable {
             info: Unmanaged.passUnretained(self).toOpaque(),
             retain: nil, release: nil, copyDescription: nil
         )
+
+        // Use explicit FSEventStreamCallback type for proper calling convention.
+        let callback: FSEventStreamCallback = { _, clientInfo, _, eventPaths, _, _ in
+            guard let info = clientInfo else { return }
+            let watcher = Unmanaged<WorkspaceFileWatcher>.fromOpaque(info).takeUnretainedValue()
+            watcher.handle(eventPathsPtr: eventPaths)
+        }
+
         guard let created = FSEventStreamCreate(
             kCFAllocatorDefault,
-            { streamRef, info, _, eventPaths, _, _ in
-                guard let info else { return }
-                let watcher = Unmanaged<WorkspaceFileWatcher>.fromOpaque(info).takeUnretainedValue()
-                watcher.handle(stream: streamRef, eventPaths: eventPaths)
-            },
+            callback,
             &context,
             paths as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            1.0, // coalesce bursts; the debounce below does the real throttling
+            1.0,
             UInt32(kFSEventStreamCreateFlagFileEvents)
         ) else {
             lock.unlock()
@@ -84,80 +80,57 @@ final class WorkspaceFileWatcher: @unchecked Sendable {
     func stop() {
         lock.lock()
         watchedPaths = []
-        if let stream {
-            let oldStream = stream  // Capture before nulling
-            stream = nil  // Null immediately to reject future callbacks
-            FSEventStreamStop(oldStream)
-            FSEventStreamInvalidate(oldStream)
+        var oldStream: FSEventStreamRef?
+        if let s = stream {
+            oldStream = s
+            self.stream = nil
         }
         onChange = nil
         debounceTask?.cancel()
         debounceTask = nil
         lock.unlock()
 
-        // After lock is released, schedule cleanup
         if let oldStream {
+            FSEventStreamStop(oldStream)
+            FSEventStreamInvalidate(oldStream)
             DispatchQueue.main.async { FSEventStreamRelease(oldStream) }
         }
     }
 
-private func handle(stream streamRef: FSEventStreamRef, eventPaths: UnsafeMutableRawPointer) {
-        // Stale callback from a superseded stream — drop it.
+    private func handle(eventPathsPtr: UnsafeMutableRawPointer?) {
         lock.lock()
-        let isCurrent = streamRef == stream
+        let current = stream
+        let interval = debounce
+        guard let callback = onChange else { return }
         lock.unlock()
-        guard isCurrent else { return }
 
-        // eventPaths is a CFArray of CFStrings. Extract element-by-element
-        // via plain C APIs. Use takeRetainedValue() for explicit ownership
-        // control, then release when done. This prevents use-after-free
-        // crashes when the stream tears down.
-        let cfArray = Unmanaged<CFArray>.fromOpaque(eventPaths).takeRetainedValue()
-        defer { cfArray.release() }
-        
-        let count = CFArrayGetCount(cfArray)
+        guard let ptr = eventPathsPtr, current != nil else { return }
+
+        // Decode eventPaths as CFArray<CFString> (paths that changed).
+        // takeRetainedValue transfers ownership to ARC — released automatically.
+        let cfArray = Unmanaged<CFArray>.fromOpaque(ptr).takeRetainedValue()
+
         var paths: [String] = []
+        let count = CFArrayGetCount(cfArray)
         paths.reserveCapacity(count)
         for index in 0..<count {
-            guard let item = CFArrayGetValueAtIndex(cfArray, index),
-                  item != nil else { 
-                // Defensive: skip invalid or unexpected array items
-                continue 
-            }
-            // Elements are CFStrings; macOS 26 imports the accessors typed.
+            guard let item = CFArrayGetValueAtIndex(cfArray, index) else { continue }
+            
+            // Filter build artifacts / skipped dirs.
             let cfString = unsafeBitCast(item, to: CFString.self)
-            if let cString = CFStringGetCStringPtr(cfString, CFStringBuiltInEncodings.UTF8.rawValue) {
-                paths.append(String(cString: cString))
-                continue
-            }
-            var buffer = [CChar](repeating: 0, count: 4096) // PATH_MAX × max UTF-8 width
-            if CFStringGetCString(cfString, &buffer, CFIndex(buffer.count), CFStringBuiltInEncodings.UTF8.rawValue) {
-                paths.append(String(cString: buffer))
+            if let str = cfString as? String {
+                if !str.split(separator: "/").contains(where: { GraphExtractor.skippedDirectories.contains(String($0)) }) {
+                    paths.append(str)
+                }
             }
         }
-            var buffer = [CChar](repeating: 0, count: 4096) // PATH_MAX × max UTF-8 width
-            if CFStringGetCString(cfString, &buffer, CFIndex(buffer.count), CFStringBuiltInEncodings.UTF8.rawValue) {
-                paths.append(String(cString: buffer))
-            }
-        }
-        // Ignore noise: skipped build/dep dirs (GraphExtractor never indexes them).
-        let relevant = paths.contains { path in
-            !path.split(separator: "/").contains {
-                GraphExtractor.skippedDirectories.contains(String($0))
-            }
-        }
-        guard relevant else { return }
+        guard !paths.isEmpty else { return }
+        guard !paths.isEmpty else { return }
 
-        // Snapshot under the lock; the async debounce task must never touch it.
-        lock.lock()
         debounceTask?.cancel()
-        let interval = debounce
-        let callback = onChange
-        lock.unlock()
-        guard let callback else { return }
         debounceTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(interval))
-            guard !Task.isCancelled, self != nil else { return }
+            guard !Task.isCancelled, let self = self, self.onChange != nil else { return }
             await callback()
         }
     }
